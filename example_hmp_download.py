@@ -52,15 +52,21 @@ def download_hmp_subset():
         print(f"   Downloading {sample_id} ({metadata['body_site']})...")
         
         try:
-            # Download using fastq-dump
-            cmd = [
+            # First, prefetch the SRA file
+            print(f"     Prefetching {sample_id}...")
+            prefetch_cmd = ["prefetch", sample_id]
+            subprocess.run(prefetch_cmd, capture_output=True, text=True, check=True)
+            
+            # Then extract FASTQ from the prefetched SRA file
+            print(f"     Extracting FASTQ for {sample_id}...")
+            fastq_cmd = [
                 "fastq-dump", 
                 "--split-files",  # Split paired-end reads
                 "--outdir", str(raw_dir),
                 sample_id
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(fastq_cmd, capture_output=True, text=True, check=True)
             print(f"     ✅ {sample_id} downloaded")
             
         except subprocess.CalledProcessError as e:

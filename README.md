@@ -33,7 +33,36 @@ MetaGrouper helps researchers make data-driven decisions about how to group meta
 - **Supported Platforms:** Linux, macOS
 - **Windows:** Basic functionality works, but assembly tools (MEGAHIT, SPAdes, Flye) require WSL or Docker
 
-### Quick Install
+### Option 1: Conda Installation (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/megjohnson1999/metaGrouper.git
+cd metaGrouper
+
+# Create new conda environment
+conda env create -f env.yaml
+conda activate metagrouper
+
+# Test installation
+python metagrouper.py --help
+```
+
+### Option 2: Add to Existing Conda Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/megjohnson1999/metaGrouper.git
+cd metaGrouper
+
+# Add packages to your current environment
+conda env update -f env.yaml
+
+# Test installation
+python metagrouper.py --help
+```
+
+### Option 3: Pip Installation
 
 ```bash
 # Clone the repository
