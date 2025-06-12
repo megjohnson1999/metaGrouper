@@ -8,7 +8,7 @@ Handles configuration files, parameter presets, and performance optimization.
 import json
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 
 class MetaGrouperConfig:
