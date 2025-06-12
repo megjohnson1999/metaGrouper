@@ -10,6 +10,7 @@ from pathlib import Path
 this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text()
 
+
 # Read requirements
 def parse_requirements(filename):
     """Parse requirements file, excluding comments and dev dependencies."""
@@ -21,6 +22,7 @@ def parse_requirements(filename):
                 requirements.append(line)
     return requirements
 
+
 # Core requirements
 install_requires = parse_requirements("requirements.txt")
 
@@ -31,7 +33,7 @@ dev_requires = [
     "black>=22.0.0",
     "flake8>=5.0.0",
     "mypy>=0.991",
-    "pre-commit>=2.20.0"
+    "pre-commit>=2.20.0",
 ]
 
 setup(
@@ -51,10 +53,10 @@ setup(
     packages=find_packages(),
     py_modules=[
         "metagrouper",
-        "metadata_analyzer", 
+        "metadata_analyzer",
         "assembly_recommender",
         "cli",
-        "config"
+        "config",
     ],
     python_requires=">=3.8",
     install_requires=install_requires,
@@ -62,7 +64,7 @@ setup(
         "dev": dev_requires,
         "config": ["PyYAML>=6.0,<7.0"],
         "system": ["psutil>=5.8.0,<6.0.0"],
-        "all": dev_requires + ["PyYAML>=6.0,<7.0", "psutil>=5.8.0,<6.0.0"]
+        "all": dev_requires + ["PyYAML>=6.0,<7.0", "psutil>=5.8.0,<6.0.0"],
     },
     entry_points={
         "console_scripts": [
@@ -74,23 +76,21 @@ setup(
     scripts=[
         "metagrouper.py",
         "example_usage.py",
-        "example_phase2.py", 
-        "example_phase3.py"
+        "example_phase2.py",
+        "example_phase3.py",
     ],
     include_package_data=True,
-    package_data={
-        "": ["*.md", "*.txt", "*.yml", "*.yaml"]
-    },
+    package_data={"": ["*.md", "*.txt", "*.yml", "*.yaml"]},
     keywords=[
         "bioinformatics",
-        "metagenomics", 
+        "metagenomics",
         "assembly",
         "k-mer",
         "microbiome",
         "genomics",
         "sequencing",
         "PERMANOVA",
-        "clustering"
+        "clustering",
     ],
     classifiers=[
         "Development Status :: 5 - Production/Stable",
