@@ -1,0 +1,21 @@
+[flake8]
+max-line-length = 88
+max-complexity = 15
+ignore = F401,F541,F841,E722,E203,E402,E501,W503,E226,C901
+
+exclude = 
+    .git,
+    __pycache__,
+    *.egg-info,
+    build,
+    dist,
+    .pytest_cache,
+    .venv,
+    venv
+
+per-file-ignores =
+    # Example and demo files can be more relaxed
+    example_*.py:C901,F401,F541,F841,E722
+    demo.py:C901,F401,F541,F841,E722
+    test_*.py:E402,F401
+    setup.py:E501
