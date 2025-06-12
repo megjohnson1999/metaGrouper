@@ -71,10 +71,12 @@ setup(
             "metagrouper=metagrouper:main",
             "metagrouper-cli=cli:enhanced_main",
             "metagrouper-config=config:main",
+            "metagrouper-preprocess=preprocess:main",
         ],
     },
     scripts=[
         "metagrouper.py",
+        "preprocess.py",
         "example_usage.py",
         "example_phase2.py",
         "example_phase3.py",

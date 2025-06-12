@@ -56,21 +56,28 @@ pip install -e .
 
 ## Quick Start
 
-### Basic Usage (Phase 1 only)
+### Option 1: Complete Workflow with Preprocessing
 
 ```bash
-# Analyze k-mer similarities only
-python metagrouper.py /path/to/fastq/files/ -o results/
+# 1. Preprocess raw FASTQ files (quality trimming, adapter removal)
+python preprocess.py raw_data/ -o clean_data/
+
+# 2. Run MetaGrouper analysis
+python metagrouper.py clean_data/ -m metadata.csv -o results/
 ```
 
-### With Metadata Analysis (Phases 1+2)
+### Option 2: Use Pre-cleaned Data
 
 ```bash
-# Include metadata for comprehensive analysis
-python metagrouper.py /path/to/fastq/files/ \
-  --metadata samples_metadata.csv \
-  --output results/ \
-  --sample-id-column sample_id
+# If your data is already preprocessed
+python metagrouper.py /path/to/clean/fastq/files/ -o results/
+```
+
+### Option 3: Quick Test with Example Data
+
+```bash
+# Download and analyze HMP data automatically
+python example_hmp_download.py
 ```
 
 ### Full Analysis with Assembly Recommendations (All Phases)
@@ -237,6 +244,46 @@ python metagrouper.py test_data/ \
   --max-reads 500 \
   --permutations 99
 ```
+
+## Data Preprocessing
+
+MetaGrouper includes a built-in preprocessing pipeline for raw FASTQ files:
+
+### Basic Preprocessing
+
+```bash
+# Quality trimming and adapter removal
+python preprocess.py raw_data/ -o clean_data/
+```
+
+### Advanced Preprocessing (Human samples)
+
+```bash
+# Install preprocessing tools
+conda install -c bioconda fastp bowtie2
+
+# Download human genome index (one-time setup)
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.fna.gz
+bowtie2-build GCF_000001405.39_GRCh38.p13_genomic.fna.gz human_genome
+
+# Preprocess with host removal
+python preprocess.py raw_data/ -o clean_data/ --host-index human_genome
+```
+
+### Preprocessing Options
+
+- `--quick`: Fast mode (min-length=30, no host removal)
+- `--min-length 50`: Minimum read length after trimming
+- `--threads 8`: Number of CPU threads to use
+- `--host-index`: Reference genome index for contamination removal
+
+### What the Pipeline Does
+
+1. **Quality trimming** - Removes low-quality bases
+2. **Adapter removal** - Removes sequencing adapters  
+3. **Deduplication** - Removes PCR duplicates
+4. **Host removal** - Removes contaminating host DNA (optional)
+5. **Format conversion** - Prepares files for MetaGrouper
 
 ## Troubleshooting
 
