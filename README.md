@@ -102,11 +102,11 @@ python metagrouper.py clean_data/ -m metadata.csv -o results/
 python metagrouper.py /path/to/clean/fastq/files/ -o results/
 ```
 
-### Option 3: Quick Test with Example Data
+### Option 3: Quick Test with Synthetic Data
 
 ```bash
-# Download and analyze HMP data automatically
-python example_hmp_download.py
+# Test with included synthetic data
+python metagrouper.py example_data/ -m example_data/realistic_metadata.csv -o test_results/
 ```
 
 ### Full Analysis with Assembly Recommendations (All Phases)
