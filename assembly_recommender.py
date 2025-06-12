@@ -344,7 +344,9 @@ class AssemblyCommandGenerator:
             else:
                 # Co-assembly (combine reads first)
                 group_name = group.group_id
-                combine_cmd = f"cat {' '.join([f'{sample}.fastq' for sample in group.sample_names])} > {group_name}_combined.fastq"
+                # Cross-platform file combination using Python
+                input_files = ' '.join([f'"{sample}.fastq"' for sample in group.sample_names])
+                combine_cmd = f'python -c "import shutil; out=open(\'{group_name}_combined.fastq\', \'wb\'); [shutil.copyfileobj(open(f, \'rb\'), out) for f in [{input_files}]]; out.close()"'
                 assembly_cmd = f"spades.py --meta -s {group_name}_combined.fastq -o {group_name}_spades_assembly"
                 commands[group.group_id] = [combine_cmd, assembly_cmd]
                 continue
@@ -366,7 +368,9 @@ class AssemblyCommandGenerator:
             else:
                 # Co-assembly
                 group_name = group.group_id
-                combine_cmd = f"cat {' '.join([f'{sample}.fastq' for sample in group.sample_names])} > {group_name}_combined.fastq"
+                # Cross-platform file combination using Python
+                input_files = ' '.join([f'"{sample}.fastq"' for sample in group.sample_names])
+                combine_cmd = f'python -c "import shutil; out=open(\'{group_name}_combined.fastq\', \'wb\'); [shutil.copyfileobj(open(f, \'rb\'), out) for f in [{input_files}]]; out.close()"'
                 assembly_cmd = f"flye --meta --nano-raw {group_name}_combined.fastq -o {group_name}_flye_assembly"
                 commands[group.group_id] = [combine_cmd, assembly_cmd]
                 continue
