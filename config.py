@@ -346,7 +346,8 @@ def get_system_info() -> Dict[str, Any]:
     }
 
 
-if __name__ == "__main__":
+def main():
+    """Main function for config command-line interface."""
     import argparse
 
     parser = argparse.ArgumentParser(description="MetaGrouper Configuration Tools")
@@ -389,3 +390,7 @@ if __name__ == "__main__":
                 print(f"  {key}: {value:.1f}")
             else:
                 print(f"  {key}: {value}")
+
+
+if __name__ == "__main__":
+    main()
