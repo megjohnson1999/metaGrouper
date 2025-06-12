@@ -30,6 +30,8 @@ MetaGrouper helps researchers make data-driven decisions about how to group meta
 
 - Python 3.8 or higher
 - Required packages listed in `requirements.txt`
+- **Supported Platforms:** Linux, macOS
+- **Windows:** Basic functionality works, but assembly tools (MEGAHIT, SPAdes, Flye) require WSL or Docker
 
 ### Quick Install
 
