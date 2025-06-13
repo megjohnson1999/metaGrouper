@@ -26,16 +26,44 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+        pip install -r requirements.txt
+        pip install pytest flake8
     
     - name: Check syntax errors only
       run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=hmp_raw_data,hmp_preprocessed
     
-    - name: Test with pytest
+    - name: Test legacy metagrouper
       run: |
         python -m pytest test_metagrouper.py -v
     
-    - name: Run quick functionality test
+    - name: Test modular architecture
       run: |
-        python demo.py --quick
+        cd metagrouper_package
+        python test_modular_metagrouper.py
+    
+    - name: Test basic functionality
+      run: |
+        python test_ci.py
+    
+    - name: Test compatibility wrapper
+      run: |
+        # Create minimal test data
+        mkdir -p test_data
+        echo -e '@read1\nATCGATCGATCGATCGATCG\n+\n~~~~~~~~~~~~~~~~~~~~' > test_data/sample1.fastq
+        echo -e '@read1\nGCTAGCTAGCTAGCTAGCTA\n+\n~~~~~~~~~~~~~~~~~~~~' > test_data/sample2.fastq
+        
+        # Test help command
+        python metagrouper.py --help
+        
+        # Test basic analysis (quick run)
+        python metagrouper.py test_data -o test_output -k 15 --max-reads 1 --sequential
+        
+        # Verify outputs were created
+        test -f test_output/distance_matrix.csv || (echo "Distance matrix not created" && exit 1)
+        test -f test_output/kmer_profiles.pkl || (echo "K-mer profiles not created" && exit 1)
+        
+        echo "✓ Compatibility wrapper works"
+        
+        # Cleanup
+        rm -rf test_data test_output
