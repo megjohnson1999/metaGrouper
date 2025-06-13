@@ -17,7 +17,7 @@ import sys
 # Add the current directory to the path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from metagrouper import KmerProfiler, SimilarityAnalyzer, Visualizer
+from metagrouper import KmerProfiler, SimilarityAnalyzer, Visualizer, find_fastq_files
 from metadata_analyzer import MetadataAnalyzer, PermanovaAnalyzer
 from assembly_recommender import AssemblyRecommender, AssemblyStrategyEngine
 
@@ -74,6 +74,108 @@ class TestKmerProfiler(unittest.TestCase):
         self.assertIn("test_sample", self.profiler.profiles)
 
         # Check that profile values sum to 1 (normalized)
+        total = sum(profile.values())
+        self.assertAlmostEqual(total, 1.0, places=5)
+
+
+class TestPairedEndSupport(unittest.TestCase):
+    """Test paired-end read support functionality."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.profiler = KmerProfiler(k=15, max_reads=100)
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        shutil.rmtree(self.temp_dir)
+
+    def create_test_fastq(self, filename: str, sequences: list):
+        """Helper to create test FASTQ files."""
+        filepath = Path(self.temp_dir) / filename
+        with open(filepath, "w") as f:
+            for i, seq in enumerate(sequences):
+                f.write(f"@read_{i}\n")
+                f.write(f"{seq}\n")
+                f.write("+\n")
+                f.write("~" * len(seq) + "\n")
+        return filepath
+
+    def test_paired_end_detection_r1_r2(self):
+        """Test detection of _R1/_R2 paired-end files."""
+        # Create paired-end files
+        self.create_test_fastq("sample001_R1.fastq", ["ATCGATCGATCGATCGATCG"])
+        self.create_test_fastq("sample001_R2.fastq", ["CGTATCGATCGATCGATCGT"])
+        
+        files = find_fastq_files(self.temp_dir)
+        
+        self.assertEqual(len(files), 1)  # Should be 1 sample with paired files
+        filepath, sample_name = files[0]
+        
+        self.assertEqual(sample_name, "sample001")
+        self.assertIsInstance(filepath, list)
+        self.assertEqual(len(filepath), 2)
+        
+        # Check that both R1 and R2 files are included
+        filenames = [Path(f).name for f in filepath]
+        self.assertIn("sample001_R1.fastq", filenames)
+        self.assertIn("sample001_R2.fastq", filenames)
+
+    def test_paired_end_detection_1_2(self):
+        """Test detection of _1/_2 paired-end files."""
+        self.create_test_fastq("sample002_1.fastq.gz", ["ATCGATCGATCGATCGATCG"])
+        self.create_test_fastq("sample002_2.fastq.gz", ["CGTATCGATCGATCGATCGT"])
+        
+        files = find_fastq_files(self.temp_dir)
+        
+        self.assertEqual(len(files), 1)
+        filepath, sample_name = files[0]
+        
+        self.assertEqual(sample_name, "sample002")
+        self.assertIsInstance(filepath, list)
+        self.assertEqual(len(filepath), 2)
+
+    def test_single_end_detection(self):
+        """Test detection of single-end files."""
+        self.create_test_fastq("sample003.fastq", ["ATCGATCGATCGATCGATCG"])
+        
+        files = find_fastq_files(self.temp_dir)
+        
+        self.assertEqual(len(files), 1)
+        filepath, sample_name = files[0]
+        
+        self.assertEqual(sample_name, "sample003")
+        self.assertIsInstance(filepath, str)
+
+    def test_orphaned_mate_handling(self):
+        """Test handling of orphaned mate files."""
+        self.create_test_fastq("sample004_R1.fastq", ["ATCGATCGATCGATCGATCG"])
+        # Only R1, no R2
+        
+        files = find_fastq_files(self.temp_dir)
+        
+        self.assertEqual(len(files), 1)
+        filepath, sample_name = files[0]
+        
+        self.assertEqual(sample_name, "sample004")
+        self.assertIsInstance(filepath, str)  # Should be treated as single-end
+
+    def test_paired_end_processing(self):
+        """Test processing of paired-end files."""
+        r1_seqs = ["ATCGATCGATCGATCGATCG", "GCTAGCTAGCTAGCTAGCTA"]
+        r2_seqs = ["CGTATCGATCGATCGATCGT", "TAGATGATGATGATGATGAT"]
+        
+        r1_file = self.create_test_fastq("test_sample_R1.fastq", r1_seqs)
+        r2_file = self.create_test_fastq("test_sample_R2.fastq", r2_seqs)
+        
+        # Test that paired files are processed together
+        file_paths = [str(r1_file), str(r2_file)]
+        profile = self.profiler.profile_sample(file_paths, "test_sample")
+        
+        self.assertIsInstance(profile, dict)
+        self.assertIn("test_sample", self.profiler.sample_names)
+        
+        # Should have processed all sequences from both files
         total = sum(profile.values())
         self.assertAlmostEqual(total, 1.0, places=5)
 

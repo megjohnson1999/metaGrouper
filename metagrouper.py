@@ -17,7 +17,7 @@ import logging
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 import gzip
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -91,33 +91,82 @@ class KmerProfiler:
         complement = {"A": "T", "T": "A", "C": "G", "G": "C"}
         return "".join(complement.get(base, base) for base in reversed(seq))
 
-    def _parse_fastq(self, filepath: str) -> List[str]:
-        """Parse FASTQ file and return sequences."""
+    def _validate_fastq_record(self, header: str, sequence: str, plus: str, quality: str, line_num: int, filepath: str) -> bool:
+        """Validate a single FASTQ record."""
+        if not header.startswith('@'):
+            logging.error(f"Invalid FASTQ header at line {line_num} in {filepath}: {header[:50]}...")
+            return False
+        
+        if not plus.startswith('+'):
+            logging.error(f"Invalid FASTQ plus line at line {line_num + 2} in {filepath}: {plus[:50]}...")
+            return False
+        
+        if len(sequence) != len(quality):
+            logging.error(f"Sequence and quality length mismatch at line {line_num} in {filepath}")
+            return False
+        
+        # Check for valid DNA bases
+        valid_bases = set('ATCGN')
+        if not all(base in valid_bases for base in sequence.upper()):
+            logging.warning(f"Non-standard bases found in sequence at line {line_num} in {filepath}")
+        
+        return True
+
+    def _parse_fastq(self, filepath: Union[str, List[str]]) -> List[str]:
+        """
+        Parse FASTQ file(s) and return sequences with validation.
+        
+        Args:
+            filepath: Single file path (str) or list of paired-end file paths
+            
+        Returns:
+            List of sequences from all input files
+        """
         sequences = []
         read_count = 0
+        
+        # Handle both single files and paired-end file lists
+        file_paths = [filepath] if isinstance(filepath, str) else filepath
+        
+        for file_path in file_paths:
+            line_num = 0
+            try:
+                with self._open_file(file_path) as f:
+                    while True:
+                        if self.max_reads and read_count >= self.max_reads:
+                            break
 
-        with self._open_file(filepath) as f:
-            while True:
-                if self.max_reads and read_count >= self.max_reads:
-                    break
+                        line_num += 1
+                        header = f.readline().strip()
+                        if not header:
+                            break
 
-                header = f.readline()
-                if not header:
-                    break
+                        line_num += 1
+                        sequence = f.readline().strip()
+                        line_num += 1
+                        plus = f.readline().strip()
+                        line_num += 1
+                        quality = f.readline().strip()
 
-                sequence = f.readline().strip()
-                plus = f.readline()
-                quality = f.readline()
-
-                if sequence:
-                    sequences.append(sequence.upper())
-                    read_count += 1
+                        if header and sequence and plus and quality:
+                            if self._validate_fastq_record(header, sequence, plus, quality, line_num - 3, file_path):
+                                sequences.append(sequence.upper())
+                                read_count += 1
+                        elif header:  # Incomplete record at end of file
+                            logging.warning(f"Incomplete FASTQ record at end of {file_path}")
+                            break
+                            
+            except Exception as e:
+                raise ValueError(f"Error parsing FASTQ file {file_path} at line {line_num}: {str(e)}")
 
         return sequences
 
-    def profile_sample(self, filepath: str, sample_name: str) -> Dict[str, int]:
-        """Generate k-mer profile for a single sample."""
-        logging.info(f"Processing sample: {sample_name}")
+    def profile_sample(self, filepath: Union[str, List[str]], sample_name: str) -> Dict[str, int]:
+        """Generate k-mer profile for a single sample (single-end or paired-end)."""
+        if isinstance(filepath, list):
+            logging.info(f"Processing paired-end sample: {sample_name} ({len(filepath)} files)")
+        else:
+            logging.info(f"Processing single-end sample: {sample_name}")
 
         sequences = self._parse_fastq(filepath)
         logging.info(f"Loaded {len(sequences)} sequences from {sample_name}")
@@ -297,8 +346,15 @@ def setup_logging(verbose: bool = False):
     )
 
 
-def find_fastq_files(input_dir: str) -> List[Tuple[str, str]]:
-    """Find FASTQ files in input directory."""
+def find_fastq_files(input_dir: str) -> List[Tuple[Union[str, List[str]], str]]:
+    """
+    Find FASTQ files in input directory with paired-end support.
+    
+    Returns:
+        List of tuples containing (filepath_or_list, sample_name)
+        - For single-end: (str_path, sample_name)
+        - For paired-end: ([R1_path, R2_path], sample_name)
+    """
     fastq_extensions = [".fastq", ".fq", ".fastq.gz", ".fq.gz"]
     files = []
 
@@ -307,15 +363,66 @@ def find_fastq_files(input_dir: str) -> List[Tuple[str, str]]:
         files.extend(list(input_path.glob(f"*{ext}")))
         files.extend(list(input_path.glob(f"**/*{ext}")))
 
-    # Create (filepath, sample_name) tuples
-    file_pairs = []
+    # Group files by potential sample names
+    sample_files = {}
+    
     for file_path in files:
-        sample_name = file_path.stem
-        if sample_name.endswith(".fastq") or sample_name.endswith(".fq"):
-            sample_name = sample_name.rsplit(".", 1)[0]
-        file_pairs.append((str(file_path), sample_name))
+        # Extract base name without extensions
+        name_parts = file_path.name
+        for ext in fastq_extensions:
+            if name_parts.endswith(ext):
+                name_parts = name_parts[:-len(ext)]
+                break
+        
+        # Check for paired-end patterns
+        paired_patterns = [
+            ("_R1", "_R2"), ("_1", "_2"), (".R1", ".R2"), 
+            (".1", ".2"), ("_F", "_R"), ("_forward", "_reverse")
+        ]
+        
+        sample_name = None
+        read_type = None
+        
+        for r1_pattern, r2_pattern in paired_patterns:
+            if name_parts.endswith(r1_pattern):
+                sample_name = name_parts[:-len(r1_pattern)]
+                read_type = "R1"
+                break
+            elif name_parts.endswith(r2_pattern):
+                sample_name = name_parts[:-len(r2_pattern)]
+                read_type = "R2"
+                break
+        
+        # If no paired pattern found, treat as single-end
+        if sample_name is None:
+            sample_name = name_parts
+            read_type = "single"
+        
+        # Store file information
+        if sample_name not in sample_files:
+            sample_files[sample_name] = {}
+        sample_files[sample_name][read_type] = str(file_path)
 
-    return sorted(file_pairs)
+    # Create final file pairs list
+    file_pairs = []
+    for sample_name, file_dict in sample_files.items():
+        if "R1" in file_dict and "R2" in file_dict:
+            # Paired-end reads
+            file_pairs.append(([file_dict["R1"], file_dict["R2"]], sample_name))
+            logging.info(f"Found paired-end sample: {sample_name}")
+        elif "R1" in file_dict or "R2" in file_dict:
+            # Only one mate found - warn but process as single-end
+            read_file = file_dict.get("R1") or file_dict.get("R2")
+            file_pairs.append((read_file, sample_name))
+            logging.warning(f"Only one mate found for {sample_name}, processing as single-end")
+        elif "single" in file_dict:
+            # Single-end reads
+            file_pairs.append((file_dict["single"], sample_name))
+        else:
+            logging.warning(f"No valid reads found for sample: {sample_name}")
+
+    logging.info(f"Found {len(file_pairs)} samples total")
+    return sorted(file_pairs, key=lambda x: x[1])
 
 
 def save_results(
@@ -445,15 +552,33 @@ def main():
     profiler = KmerProfiler(k=args.kmer_size, max_reads=args.max_reads)
 
     # Process each sample
+    failed_samples = []
     for filepath, sample_name in fastq_files:
         try:
             profiler.profile_sample(filepath, sample_name)
-        except Exception as e:
-            logging.error(f"Failed to process {sample_name}: {e}")
+        except ValueError as e:
+            logging.error(f"Input validation error for {sample_name}: {e}")
+            failed_samples.append(sample_name)
             continue
-
+        except FileNotFoundError as e:
+            logging.error(f"File not found for {sample_name}: {e}")
+            failed_samples.append(sample_name)
+            continue
+        except PermissionError as e:
+            logging.error(f"Permission denied for {sample_name}: {e}")
+            failed_samples.append(sample_name)
+            continue
+        except Exception as e:
+            logging.error(f"Unexpected error processing {sample_name}: {e}")
+            logging.debug(f"Full error details: {type(e).__name__}: {e}")
+            failed_samples.append(sample_name)
+            continue
+    
+    if failed_samples:
+        logging.warning(f"Failed to process {len(failed_samples)} samples: {', '.join(failed_samples)}")
+    
     if not profiler.profiles:
-        logging.error("No samples were successfully processed")
+        logging.error("No samples were successfully processed. Check input files and error messages above.")
         sys.exit(1)
 
     logging.info(f"Successfully processed {len(profiler.profiles)} samples")
