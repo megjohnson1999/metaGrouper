@@ -27,6 +27,10 @@ from sklearn.manifold import MDS
 from sklearn.metrics.pairwise import pairwise_distances
 import pickle
 import json
+import multiprocessing as mp
+from multiprocessing import Pool, Manager
+import time
+from functools import partial
 
 # Import Phase 2 functionality
 try:
@@ -59,12 +63,47 @@ except ImportError:
     )
 
 
+def process_sample_worker(args):
+    """
+    Worker function for multiprocessing sample processing.
+    
+    Args:
+        args: Tuple containing (filepath, sample_name, k, max_reads, min_kmer_freq, memory_efficient, progress_dict, lock)
+    
+    Returns:
+        Tuple containing (sample_name, profile, error_message)
+    """
+    filepath, sample_name, k, max_reads, min_kmer_freq, memory_efficient, progress_dict, lock = args
+    
+    try:
+        # Create a temporary profiler for this worker
+        profiler = KmerProfiler(k=k, max_reads=max_reads, min_kmer_freq=min_kmer_freq)
+        profile = profiler.profile_sample(filepath, sample_name, memory_efficient=memory_efficient)
+        
+        # Update progress safely
+        with lock:
+            progress_dict['completed'] += 1
+            progress_dict['current_sample'] = sample_name
+        
+        return (sample_name, profile, None)
+    
+    except Exception as e:
+        # Update progress and record error
+        with lock:
+            progress_dict['completed'] += 1
+            progress_dict['failed'] += 1
+            progress_dict['errors'][sample_name] = str(e)
+        
+        return (sample_name, None, str(e))
+
+
 class KmerProfiler:
     """Handle k-mer profiling of metagenomic samples."""
 
-    def __init__(self, k: int = 21, max_reads: Optional[int] = None):
+    def __init__(self, k: int = 21, max_reads: Optional[int] = None, min_kmer_freq: int = 1):
         self.k = k
         self.max_reads = max_reads
+        self.min_kmer_freq = min_kmer_freq  # Filter out low-frequency k-mers
         self.profiles = {}
         self.sample_names = []
 
@@ -111,6 +150,50 @@ class KmerProfiler:
             logging.warning(f"Non-standard bases found in sequence at line {line_num} in {filepath}")
         
         return True
+
+    def _stream_fastq_records(self, filepath: Union[str, List[str]]):
+        """
+        Generator that yields FASTQ sequences one at a time for memory efficiency.
+        
+        Args:
+            filepath: Single file path (str) or list of paired-end file paths
+            
+        Yields:
+            DNA sequences as strings
+        """
+        read_count = 0
+        file_paths = [filepath] if isinstance(filepath, str) else filepath
+        
+        for file_path in file_paths:
+            line_num = 0
+            try:
+                with self._open_file(file_path) as f:
+                    while True:
+                        if self.max_reads and read_count >= self.max_reads:
+                            break
+
+                        line_num += 1
+                        header = f.readline().strip()
+                        if not header:
+                            break
+
+                        line_num += 1
+                        sequence = f.readline().strip()
+                        line_num += 1
+                        plus = f.readline().strip()
+                        line_num += 1
+                        quality = f.readline().strip()
+
+                        if header and sequence and plus and quality:
+                            if self._validate_fastq_record(header, sequence, plus, quality, line_num - 3, file_path):
+                                yield sequence.upper()
+                                read_count += 1
+                        elif header:  # Incomplete record at end of file
+                            logging.warning(f"Incomplete FASTQ record at end of {file_path}")
+                            break
+                            
+            except Exception as e:
+                raise ValueError(f"Error parsing FASTQ file {file_path} at line {line_num}: {str(e)}")
 
     def _parse_fastq(self, filepath: Union[str, List[str]]) -> List[str]:
         """
@@ -161,27 +244,58 @@ class KmerProfiler:
 
         return sequences
 
-    def profile_sample(self, filepath: Union[str, List[str]], sample_name: str) -> Dict[str, int]:
-        """Generate k-mer profile for a single sample (single-end or paired-end)."""
+    def profile_sample(self, filepath: Union[str, List[str]], sample_name: str, 
+                      memory_efficient: bool = True) -> Dict[str, int]:
+        """
+        Generate k-mer profile for a single sample (single-end or paired-end).
+        
+        Args:
+            filepath: File path(s) to process
+            sample_name: Name of the sample
+            memory_efficient: Use streaming parser to reduce memory usage
+        """
         if isinstance(filepath, list):
             logging.info(f"Processing paired-end sample: {sample_name} ({len(filepath)} files)")
         else:
             logging.info(f"Processing single-end sample: {sample_name}")
 
-        sequences = self._parse_fastq(filepath)
-        logging.info(f"Loaded {len(sequences)} sequences from {sample_name}")
-
         total_kmers = defaultdict(int)
-        for seq in sequences:
-            seq_kmers = self._extract_kmers(seq)
-            for kmer, count in seq_kmers.items():
-                total_kmers[kmer] += count
+        sequence_count = 0
+        
+        if memory_efficient:
+            # Use streaming parser for memory efficiency
+            for sequence in self._stream_fastq_records(filepath):
+                seq_kmers = self._extract_kmers(sequence)
+                for kmer, count in seq_kmers.items():
+                    total_kmers[kmer] += count
+                sequence_count += 1
+        else:
+            # Load all sequences into memory (legacy behavior)
+            sequences = self._parse_fastq(filepath)
+            sequence_count = len(sequences)
+            for seq in sequences:
+                seq_kmers = self._extract_kmers(seq)
+                for kmer, count in seq_kmers.items():
+                    total_kmers[kmer] += count
+
+        logging.info(f"Processed {sequence_count} sequences from {sample_name}")
+
+        # Filter low-frequency k-mers to reduce memory usage
+        if self.min_kmer_freq > 1:
+            filtered_kmers = {kmer: count for kmer, count in total_kmers.items() 
+                            if count >= self.min_kmer_freq}
+            logging.info(f"Filtered {len(total_kmers) - len(filtered_kmers)} low-frequency k-mers")
+            total_kmers = filtered_kmers
 
         # Normalize by total k-mer count
         total_count = sum(total_kmers.values())
-        normalized_profile = {
-            kmer: count / total_count for kmer, count in total_kmers.items()
-        }
+        if total_count == 0:
+            logging.warning(f"No k-mers found for sample {sample_name}")
+            normalized_profile = {}
+        else:
+            normalized_profile = {
+                kmer: count / total_count for kmer, count in total_kmers.items()
+            }
 
         self.profiles[sample_name] = normalized_profile
         if sample_name not in self.sample_names:
@@ -190,25 +304,145 @@ class KmerProfiler:
         logging.info(f"Generated profile with {len(normalized_profile)} unique k-mers")
         return normalized_profile
 
+    def process_samples_parallel(self, fastq_files: List[Tuple[Union[str, List[str]], str]], 
+                                n_processes: Optional[int] = None, 
+                                show_progress: bool = True,
+                                memory_efficient: bool = True) -> Tuple[Dict[str, Dict[str, float]], List[str]]:
+        """
+        Process multiple samples in parallel using multiprocessing.
+        
+        Args:
+            fastq_files: List of (filepath, sample_name) tuples
+            n_processes: Number of processes to use (default: CPU count)
+            show_progress: Whether to show progress updates
+            
+        Returns:
+            Tuple containing (profiles_dict, failed_samples_list)
+        """
+        if n_processes is None:
+            n_processes = min(mp.cpu_count(), len(fastq_files))
+        
+        logging.info(f"Processing {len(fastq_files)} samples using {n_processes} processes")
+        
+        # Create shared progress tracking
+        manager = Manager()
+        progress_dict = manager.dict({
+            'completed': 0,
+            'failed': 0,
+            'current_sample': '',
+            'errors': manager.dict()
+        })
+        lock = manager.Lock()
+        
+        # Prepare arguments for worker processes
+        worker_args = [
+            (filepath, sample_name, self.k, self.max_reads, self.min_kmer_freq, memory_efficient, progress_dict, lock)
+            for filepath, sample_name in fastq_files
+        ]
+        
+        start_time = time.time()
+        failed_samples = []
+        
+        try:
+            with Pool(processes=n_processes) as pool:
+                if show_progress:
+                    # Start progress monitoring
+                    import threading
+                    progress_thread = threading.Thread(
+                        target=self._monitor_progress,
+                        args=(progress_dict, len(fastq_files), start_time)
+                    )
+                    progress_thread.daemon = True
+                    progress_thread.start()
+                
+                # Process samples in parallel
+                results = pool.map(process_sample_worker, worker_args)
+                
+                # Collect results
+                for sample_name, profile, error in results:
+                    if error is None:
+                        self.profiles[sample_name] = profile
+                        if sample_name not in self.sample_names:
+                            self.sample_names.append(sample_name)
+                    else:
+                        failed_samples.append(sample_name)
+                        logging.error(f"Failed to process {sample_name}: {error}")
+        
+        except KeyboardInterrupt:
+            logging.warning("Processing interrupted by user")
+            raise
+        except Exception as e:
+            logging.error(f"Error in parallel processing: {e}")
+            raise
+        
+        elapsed_time = time.time() - start_time
+        success_count = len(fastq_files) - len(failed_samples)
+        
+        logging.info(f"Parallel processing completed in {elapsed_time:.1f}s")
+        logging.info(f"Successfully processed: {success_count}/{len(fastq_files)} samples")
+        
+        if failed_samples:
+            logging.warning(f"Failed samples: {', '.join(failed_samples)}")
+        
+        return self.profiles, failed_samples
+
+    def _monitor_progress(self, progress_dict, total_samples: int, start_time: float):
+        """Monitor and display progress updates."""
+        while progress_dict['completed'] < total_samples:
+            completed = progress_dict['completed']
+            failed = progress_dict['failed']
+            current = progress_dict.get('current_sample', '')
+            
+            if completed > 0:
+                elapsed = time.time() - start_time
+                rate = completed / elapsed
+                eta = (total_samples - completed) / rate if rate > 0 else 0
+                
+                progress_msg = f"Progress: {completed}/{total_samples} ({completed/total_samples*100:.1f}%)"
+                if failed > 0:
+                    progress_msg += f" - {failed} failed"
+                if current:
+                    progress_msg += f" - Current: {current}"
+                progress_msg += f" - ETA: {eta:.1f}s"
+                
+                logging.info(progress_msg)
+            
+            time.sleep(2)  # Update every 2 seconds
+
 
 class SimilarityAnalyzer:
-    """Analyze similarities between k-mer profiles."""
+    """Analyze similarities between k-mer profiles with memory optimization."""
 
-    def __init__(self, profiles: Dict[str, Dict[str, float]]):
+    def __init__(self, profiles: Dict[str, Dict[str, float]], memory_efficient: bool = True):
         self.profiles = profiles
         self.sample_names = list(profiles.keys())
         self.distance_matrix = None
         self.similarity_matrix = None
+        self.memory_efficient = memory_efficient
 
     def compute_distance_matrix(self, metric: str = "braycurtis") -> np.ndarray:
-        """Compute pairwise distance matrix between samples."""
+        """Compute pairwise distance matrix between samples with memory optimization."""
         logging.info(f"Computing distance matrix using {metric} metric")
+        
+        n_samples = len(self.sample_names)
+        
+        if self.memory_efficient and n_samples > 50:
+            # Memory-efficient computation for large datasets
+            logging.info("Using memory-efficient distance computation")
+            return self._compute_distance_matrix_efficient(metric)
+        else:
+            # Standard computation for smaller datasets
+            return self._compute_distance_matrix_standard(metric)
 
+    def _compute_distance_matrix_standard(self, metric: str) -> np.ndarray:
+        """Standard distance matrix computation (loads all data into memory)."""
         # Get all unique k-mers across all samples
         all_kmers = set()
         for profile in self.profiles.values():
             all_kmers.update(profile.keys())
         all_kmers = sorted(list(all_kmers))
+        
+        logging.info(f"Using {len(all_kmers)} unique k-mers across {len(self.sample_names)} samples")
 
         # Create feature matrix
         feature_matrix = np.zeros((len(self.sample_names), len(all_kmers)))
@@ -220,6 +454,71 @@ class SimilarityAnalyzer:
         self.distance_matrix = pairwise_distances(feature_matrix, metric=metric)
         self.similarity_matrix = 1 - self.distance_matrix
 
+        return self.distance_matrix
+
+    def _compute_distance_matrix_efficient(self, metric: str) -> np.ndarray:
+        """Memory-efficient distance matrix computation for large datasets."""
+        from scipy.spatial.distance import pdist, squareform
+        from scipy.sparse import csr_matrix
+        
+        n_samples = len(self.sample_names)
+        
+        # Get common k-mers (present in multiple samples) to reduce dimensionality
+        kmer_counts = defaultdict(int)
+        for profile in self.profiles.values():
+            for kmer in profile.keys():
+                kmer_counts[kmer] += 1
+        
+        # Keep k-mers present in at least 2 samples or with high frequency
+        min_samples = max(2, int(0.1 * n_samples))  # At least 10% of samples
+        common_kmers = [kmer for kmer, count in kmer_counts.items() if count >= min_samples]
+        
+        if not common_kmers:
+            # Fallback to all k-mers if no common ones
+            common_kmers = list(kmer_counts.keys())
+        
+        logging.info(f"Using {len(common_kmers)} common k-mers (from {len(kmer_counts)} total)")
+        
+        # Build sparse feature matrix
+        data, row_indices, col_indices = [], [], []
+        for i, sample in enumerate(self.sample_names):
+            profile = self.profiles[sample]
+            for j, kmer in enumerate(common_kmers):
+                if kmer in profile and profile[kmer] > 0:
+                    data.append(profile[kmer])
+                    row_indices.append(i)
+                    col_indices.append(j)
+        
+        sparse_matrix = csr_matrix((data, (row_indices, col_indices)), 
+                                 shape=(n_samples, len(common_kmers)))
+        
+        # Convert to dense for distance computation (only if manageable size)
+        if sparse_matrix.nnz < 1000000:  # Less than 1M non-zero elements
+            feature_matrix = sparse_matrix.toarray()
+            self.distance_matrix = pairwise_distances(feature_matrix, metric=metric)
+        else:
+            # For very large datasets, compute distances chunk by chunk
+            logging.info("Computing distances in chunks for very large dataset")
+            self.distance_matrix = np.zeros((n_samples, n_samples))
+            
+            chunk_size = 10
+            for i in range(0, n_samples, chunk_size):
+                end_i = min(i + chunk_size, n_samples)
+                chunk_i = sparse_matrix[i:end_i].toarray()
+                
+                for j in range(i, n_samples, chunk_size):
+                    end_j = min(j + chunk_size, n_samples)
+                    chunk_j = sparse_matrix[j:end_j].toarray()
+                    
+                    # Compute distances for this chunk
+                    chunk_distances = pairwise_distances(chunk_i, chunk_j, metric=metric)
+                    
+                    # Store in matrix
+                    self.distance_matrix[i:end_i, j:end_j] = chunk_distances
+                    if i != j:  # Fill symmetric part
+                        self.distance_matrix[j:end_j, i:end_i] = chunk_distances.T
+        
+        self.similarity_matrix = 1 - self.distance_matrix
         return self.distance_matrix
 
     def perform_pca(self, n_components: int = 2) -> Tuple[np.ndarray, PCA]:
@@ -532,6 +831,35 @@ def main():
         help="Maximum samples per assembly group (default: 10)",
     )
 
+    # Performance arguments
+    parser.add_argument(
+        "--processes",
+        type=int,
+        help="Number of parallel processes (default: CPU count)"
+    )
+    parser.add_argument(
+        "--sequential",
+        action="store_true",
+        help="Disable parallel processing (use sequential mode)"
+    )
+    parser.add_argument(
+        "--min-kmer-freq",
+        type=int,
+        default=1,
+        help="Minimum k-mer frequency to keep (filters rare k-mers, default: 1)"
+    )
+    parser.add_argument(
+        "--memory-efficient",
+        action="store_true",
+        default=True,
+        help="Use memory-efficient processing (default: enabled)"
+    )
+    parser.add_argument(
+        "--no-memory-efficient",
+        action="store_true",
+        help="Disable memory-efficient processing (load all data into memory)"
+    )
+
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
 
     args = parser.parse_args()
@@ -548,31 +876,63 @@ def main():
 
     logging.info(f"Found {len(fastq_files)} FASTQ files")
 
-    # Initialize profiler
-    profiler = KmerProfiler(k=args.kmer_size, max_reads=args.max_reads)
+    # Process memory efficiency setting
+    memory_efficient = args.memory_efficient and not args.no_memory_efficient
+    
+    # Initialize profiler with memory optimization settings
+    profiler = KmerProfiler(
+        k=args.kmer_size, 
+        max_reads=args.max_reads,
+        min_kmer_freq=args.min_kmer_freq
+    )
 
-    # Process each sample
-    failed_samples = []
-    for filepath, sample_name in fastq_files:
+    # Process samples (parallel or sequential based on arguments)
+    if args.sequential or len(fastq_files) <= 2:
+        # Sequential processing for small datasets or when requested
+        logging.info("Using sequential processing")
+        failed_samples = []
+        for filepath, sample_name in fastq_files:
+            try:
+                profiler.profile_sample(filepath, sample_name, memory_efficient=memory_efficient)
+            except ValueError as e:
+                logging.error(f"Input validation error for {sample_name}: {e}")
+                failed_samples.append(sample_name)
+                continue
+            except FileNotFoundError as e:
+                logging.error(f"File not found for {sample_name}: {e}")
+                failed_samples.append(sample_name)
+                continue
+            except PermissionError as e:
+                logging.error(f"Permission denied for {sample_name}: {e}")
+                failed_samples.append(sample_name)
+                continue
+            except Exception as e:
+                logging.error(f"Unexpected error processing {sample_name}: {e}")
+                logging.debug(f"Full error details: {type(e).__name__}: {e}")
+                failed_samples.append(sample_name)
+                continue
+    else:
+        # Parallel processing for larger datasets
         try:
-            profiler.profile_sample(filepath, sample_name)
-        except ValueError as e:
-            logging.error(f"Input validation error for {sample_name}: {e}")
-            failed_samples.append(sample_name)
-            continue
-        except FileNotFoundError as e:
-            logging.error(f"File not found for {sample_name}: {e}")
-            failed_samples.append(sample_name)
-            continue
-        except PermissionError as e:
-            logging.error(f"Permission denied for {sample_name}: {e}")
-            failed_samples.append(sample_name)
-            continue
+            logging.info("Using parallel processing")
+            profiles, failed_samples = profiler.process_samples_parallel(
+                fastq_files, 
+                n_processes=args.processes,
+                show_progress=not args.verbose,  # Show progress only if not in verbose mode
+                memory_efficient=memory_efficient
+            )
         except Exception as e:
-            logging.error(f"Unexpected error processing {sample_name}: {e}")
-            logging.debug(f"Full error details: {type(e).__name__}: {e}")
-            failed_samples.append(sample_name)
-            continue
+            logging.error(f"Parallel processing failed: {e}")
+            logging.info("Falling back to sequential processing")
+            # Fallback to sequential processing
+            failed_samples = []
+            for filepath, sample_name in fastq_files:
+                try:
+                    profiler.profile_sample(filepath, sample_name, memory_efficient=memory_efficient)
+                except Exception as e:
+                    logging.error(f"Failed to process {sample_name}: {e}")
+                    failed_samples.append(sample_name)
+                    continue
     
     if failed_samples:
         logging.warning(f"Failed to process {len(failed_samples)} samples: {', '.join(failed_samples)}")
@@ -584,7 +944,7 @@ def main():
     logging.info(f"Successfully processed {len(profiler.profiles)} samples")
 
     # Analyze similarities
-    analyzer = SimilarityAnalyzer(profiler.profiles)
+    analyzer = SimilarityAnalyzer(profiler.profiles, memory_efficient=memory_efficient)
     distance_matrix = analyzer.compute_distance_matrix(metric=args.distance_metric)
 
     # Perform dimensionality reduction
