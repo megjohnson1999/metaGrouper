@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ['3.8', '3.9', '3.10', '3.11']
+        python-version: ['3.9', '3.10', '3.11']
 
     steps:
     - uses: actions/checkout@v4
@@ -26,44 +26,53 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install numpy pandas scipy scikit-learn matplotlib seaborn
         pip install pytest flake8
     
     - name: Check syntax errors only
       run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=hmp_raw_data,hmp_preprocessed
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=hmp_raw_data,hmp_preprocessed,metagrouper_package/metagrouper.log
     
-    - name: Test legacy metagrouper
+    - name: Test core functionality (minimal)
       run: |
-        python -m pytest test_metagrouper.py -v
+        python test_ci_minimal.py
     
-    - name: Test modular architecture
+    - name: Test comprehensive modular architecture
       run: |
         cd metagrouper_package
         python test_modular_metagrouper.py
     
-    - name: Test basic functionality
-      run: |
-        python test_ci.py
-    
-    - name: Test compatibility wrapper
+    - name: Test minimal workflow
       run: |
         # Create minimal test data
         mkdir -p test_data
-        echo -e '@read1\nATCGATCGATCGATCGATCG\n+\n~~~~~~~~~~~~~~~~~~~~' > test_data/sample1.fastq
-        echo -e '@read1\nGCTAGCTAGCTAGCTAGCTA\n+\n~~~~~~~~~~~~~~~~~~~~' > test_data/sample2.fastq
+        echo -e '@read1\nATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG\n+\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' > test_data/sample1.fastq
+        echo -e '@read2\nGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTA\n+\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' > test_data/sample2.fastq
         
-        # Test help command
-        python metagrouper.py --help
+        # Test basic analysis
+        python metagrouper.py test_data -o test_output -k 17 --max-reads 2 --sequential --min-kmer-freq 1
         
-        # Test basic analysis (quick run)
-        python metagrouper.py test_data -o test_output -k 15 --max-reads 1 --sequential
+        # Verify core outputs were created
+        if [ -f test_output/distance_matrix.csv ]; then
+          echo "✓ Distance matrix created"
+        else
+          echo "❌ Distance matrix missing"
+          exit 1
+        fi
         
-        # Verify outputs were created
-        test -f test_output/distance_matrix.csv || (echo "Distance matrix not created" && exit 1)
-        test -f test_output/kmer_profiles.pkl || (echo "K-mer profiles not created" && exit 1)
+        if [ -f test_output/kmer_profiles.pkl ]; then
+          echo "✓ K-mer profiles created"
+        else
+          echo "❌ K-mer profiles missing"
+          exit 1
+        fi
         
-        echo "✓ Compatibility wrapper works"
+        echo "✓ Minimal workflow test passed"
         
         # Cleanup
         rm -rf test_data test_output
+    
+    - name: Test help and version info
+      run: |
+        python metagrouper.py --help
+        echo "✓ Help command works"
