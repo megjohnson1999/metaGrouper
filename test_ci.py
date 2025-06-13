@@ -13,26 +13,30 @@ def test_imports():
     """Test that all imports work correctly."""
     print("🔧 Testing imports...")
     
-    # Test modular imports
-    sys.path.insert(0, 'metagrouper_package')
-    from metagrouper import (
-        KmerProfiler, 
-        SimilarityAnalyzer, 
-        Visualizer,
-        find_fastq_files,
-        setup_logging,
-        save_results,
-        MetaGrouperConfig
-    )
+    try:
+        # Test modular imports
+        sys.path.insert(0, 'metagrouper_package')
+        from metagrouper import (
+            KmerProfiler, 
+            SimilarityAnalyzer, 
+            Visualizer,
+            find_fastq_files,
+            setup_logging,
+            save_results,
+            MetaGrouperConfig
+        )
+        print("   ✓ All modular imports successful")
+    except ImportError as e:
+        print(f"   ❌ Modular import failed: {e}")
+        return False
     
     # Test legacy imports still work
     try:
         import metagrouper as legacy_mg
         print("   ✓ Legacy metagrouper imports work")
     except ImportError as e:
-        print(f"   ⚠️  Legacy import failed: {e}")
+        print(f"   ⚠️  Legacy import failed (this is OK in CI): {e}")
     
-    print("   ✓ All modular imports successful")
     return True
 
 
