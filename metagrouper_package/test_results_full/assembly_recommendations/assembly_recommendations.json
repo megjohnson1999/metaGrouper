@@ -1,0 +1,218 @@
+{
+  "strategy": "grouped",
+  "overall_confidence": 0.4366336761276704,
+  "summary": "Recommended strategy: Grouped Assembly | Confidence: 43.7% | Co-assembly groups: 7 | Individual assemblies: 1",
+  "rationale": [
+    "Grouped assembly recommended based on similarity clustering",
+    "Identified 7 groups for co-assembly",
+    "1 samples recommended for individual assembly",
+    "Strategy supported by metadata variable 'patient_id' (R\u00b2 = 0.882)"
+  ],
+  "groups": [
+    {
+      "group_id": 0,
+      "sample_names": [
+        "sample_002",
+        "sample_004",
+        "sample_008",
+        "sample_009"
+      ],
+      "strategy": "grouped",
+      "confidence": 0.43166967994654065,
+      "similarity_stats": {
+        "mean_similarity": 0.5404315241897223,
+        "min_similarity": 0.49356616144274945,
+        "std_similarity": 0.05034113942980395
+      },
+      "metadata_support": {
+        "patient_id": {
+          "consistency": 0.5,
+          "unique_values": 3,
+          "total_samples": 4
+        },
+        "gender": {
+          "consistency": 0.75,
+          "unique_values": 2,
+          "total_samples": 4
+        }
+      }
+    },
+    {
+      "group_id": 1,
+      "sample_names": [
+        "sample_010",
+        "sample_011",
+        "sample_013",
+        "sample_015"
+      ],
+      "strategy": "grouped",
+      "confidence": 0.4783211559903381,
+      "similarity_stats": {
+        "mean_similarity": 0.552174494649741,
+        "min_similarity": 0.4747458791208792,
+        "std_similarity": 0.05481372285019358
+      },
+      "metadata_support": {
+        "patient_id": {
+          "consistency": 0.75,
+          "unique_values": 2,
+          "total_samples": 4
+        },
+        "gender": {
+          "consistency": 1.0,
+          "unique_values": 1,
+          "total_samples": 4
+        }
+      }
+    },
+    {
+      "group_id": 2,
+      "sample_names": [
+        "sample_016",
+        "sample_018"
+      ],
+      "strategy": "grouped",
+      "confidence": 0.43866067756194316,
+      "similarity_stats": {
+        "mean_similarity": 0.526919732807139,
+        "min_similarity": 0.526919732807139,
+        "std_similarity": 0.0
+      },
+      "metadata_support": {
+        "patient_id": {
+          "consistency": 1.0,
+          "unique_values": 1,
+          "total_samples": 2
+        },
+        "gender": {
+          "consistency": 0.5,
+          "unique_values": 2,
+          "total_samples": 2
+        }
+      }
+    },
+    {
+      "group_id": 3,
+      "sample_names": [
+        "sample_014",
+        "sample_017"
+      ],
+      "strategy": "grouped",
+      "confidence": 0.43221335538838024,
+      "similarity_stats": {
+        "mean_similarity": 0.519175201667724,
+        "min_similarity": 0.519175201667724,
+        "std_similarity": 0.0
+      },
+      "metadata_support": {
+        "patient_id": {
+          "consistency": 0.5,
+          "unique_values": 2,
+          "total_samples": 2
+        },
+        "gender": {
+          "consistency": 1.0,
+          "unique_values": 1,
+          "total_samples": 2
+        }
+      }
+    },
+    {
+      "group_id": 4,
+      "sample_names": [
+        "sample_005",
+        "sample_019",
+        "sample_020",
+        "sample_021",
+        "sample_022",
+        "sample_023",
+        "sample_024"
+      ],
+      "strategy": "grouped",
+      "confidence": 0.5256544777538517,
+      "similarity_stats": {
+        "mean_similarity": 0.6241868268493574,
+        "min_similarity": 0.40052644595979225,
+        "std_similarity": 0.0964311857319759
+      },
+      "metadata_support": {
+        "patient_id": {
+          "consistency": 0.7142857142857143,
+          "unique_values": 3,
+          "total_samples": 7
+        },
+        "gender": {
+          "consistency": 0.8571428571428572,
+          "unique_values": 2,
+          "total_samples": 7
+        }
+      }
+    },
+    {
+      "group_id": 5,
+      "sample_names": [
+        "sample_003",
+        "sample_007"
+      ],
+      "strategy": "grouped",
+      "confidence": 0.3996693452440967,
+      "similarity_stats": {
+        "mean_similarity": 0.5224435885543748,
+        "min_similarity": 0.5224435885543748,
+        "std_similarity": 0.0
+      },
+      "metadata_support": {
+        "patient_id": {
+          "consistency": 0.5,
+          "unique_values": 2,
+          "total_samples": 2
+        },
+        "gender": {
+          "consistency": 0.5,
+          "unique_values": 2,
+          "total_samples": 2
+        }
+      }
+    },
+    {
+      "group_id": 6,
+      "sample_names": [
+        "sample_001",
+        "sample_006"
+      ],
+      "strategy": "grouped",
+      "confidence": 0.409288391325386,
+      "similarity_stats": {
+        "mean_similarity": 0.491637707297761,
+        "min_similarity": 0.491637707297761,
+        "std_similarity": 0.0
+      },
+      "metadata_support": {
+        "patient_id": {
+          "consistency": 0.5,
+          "unique_values": 2,
+          "total_samples": 2
+        },
+        "gender": {
+          "consistency": 1.0,
+          "unique_values": 1,
+          "total_samples": 2
+        }
+      }
+    },
+    {
+      "group_id": 7,
+      "sample_names": [
+        "sample_012"
+      ],
+      "strategy": "individual",
+      "confidence": 0.7,
+      "similarity_stats": {
+        "mean_similarity": 1.0,
+        "min_similarity": 1.0,
+        "std_similarity": 0.0
+      },
+      "metadata_support": null
+    }
+  ]
+}

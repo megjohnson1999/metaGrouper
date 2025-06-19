@@ -117,8 +117,18 @@ class SparseSimilarityAnalyzer:
                     sim = self._weighted_jaccard_similarity(profile_i, profile_j)
                 elif method == 'cosine':
                     sim = self._cosine_similarity(profile_i, profile_j)
+                elif method == 'braycurtis':
+                    # Convert Bray-Curtis distance to similarity
+                    distance = self._braycurtis_distance(profile_i, profile_j)
+                    sim = 1 - distance
+                elif method == 'euclidean':
+                    # Convert Euclidean distance to similarity
+                    distance = self._euclidean_distance(profile_i, profile_j)
+                    # Normalize to [0,1] similarity (assuming max distance of 2)
+                    sim = max(0, 1 - distance / 2)
                 else:
-                    raise ValueError(f"Unknown similarity method: {method}")
+                    raise ValueError(f"Unknown similarity method: {method}. "
+                                   f"Supported: jaccard, weighted_jaccard, cosine, braycurtis, euclidean")
                 
                 # Store if above threshold
                 if sim > self.similarity_threshold:
@@ -272,6 +282,27 @@ class SparseSimilarityAnalyzer:
         norm2 = math.sqrt(sum(profile2.get(k, 0)**2 for k in all_kmers))
         
         return dot_product / (norm1 * norm2) if norm1 > 0 and norm2 > 0 else 0
+    
+    def _braycurtis_distance(self, profile1: Dict[str, float], 
+                            profile2: Dict[str, float]) -> float:
+        """Bray-Curtis distance between frequency vectors."""
+        all_kmers = set(profile1.keys()) | set(profile2.keys())
+        
+        numerator = sum(abs(profile1.get(k, 0) - profile2.get(k, 0)) for k in all_kmers)
+        denominator = sum(profile1.get(k, 0) + profile2.get(k, 0) for k in all_kmers)
+        
+        return numerator / denominator if denominator > 0 else 0
+    
+    def _euclidean_distance(self, profile1: Dict[str, float], 
+                           profile2: Dict[str, float]) -> float:
+        """Euclidean distance between frequency vectors."""
+        import math
+        
+        all_kmers = set(profile1.keys()) | set(profile2.keys())
+        
+        squared_diffs = sum((profile1.get(k, 0) - profile2.get(k, 0))**2 for k in all_kmers)
+        
+        return math.sqrt(squared_diffs)
     
     def get_most_similar_samples(self, sample_name: str, 
                                top_n: int = 10) -> List[Tuple[str, float]]:
