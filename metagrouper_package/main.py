@@ -1,502 +1,256 @@
 #!/usr/bin/env python3
 """
-MetaGrouper: K-mer-based Analysis for Optimal Metagenomic Assembly Grouping
-
-This is the main entry point for MetaGrouper, using the modular architecture.
-It handles command-line argument parsing and orchestrates the analysis workflow.
+MetaGrouper: Clean main entry point with Phase 1 integration.
 """
 
 import sys
 import argparse
 import logging
+import time
 from pathlib import Path
 
-# Add the package to the path for development
+# Add the package to the path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from metagrouper import (
-    KmerProfiler, 
-    SimilarityAnalyzer, 
-    Visualizer,
     find_fastq_files,
     setup_logging,
     save_results,
-    MetaGrouperConfig
 )
 
-# Import Phase 2 and 3 functionality if available
+# Phase 1 imports
 try:
-    from metadata_analyzer import (
-        MetadataAnalyzer,
-        MetadataVisualizer,
-        generate_summary_report,
-    )
-    PHASE2_AVAILABLE = True
-except ImportError:
-    PHASE2_AVAILABLE = False
-    logging.warning("Phase 2 metadata analysis not available. Install required dependencies.")
-
-try:
-    from assembly_recommender import (
-        AssemblyRecommender,
-        save_recommendations,
-        visualize_assembly_strategy,
-    )
-    PHASE3_AVAILABLE = True
-except ImportError:
-    PHASE3_AVAILABLE = False
-    logging.warning("Phase 3 assembly recommendations not available. Install required dependencies.")
+    from metagrouper.sketch_profiler import StreamingKmerProfiler
+    from metagrouper.sparse_analyzer import SparseSimilarityAnalyzer
+    from metagrouper.profiler import KmerProfiler
+    PHASE1_AVAILABLE = True
+except ImportError as e:
+    PHASE1_AVAILABLE = False
+    logging.error(f"Phase 1 not available: {e}")
 
 
-def parse_arguments():
-    """Parse command-line arguments."""
+def create_parser():
+    """Create command-line argument parser."""
     parser = argparse.ArgumentParser(
-        description="MetaGrouper: K-mer profiling and metadata-driven assembly grouping"
+        description="MetaGrouper: K-mer analysis for metagenomic assembly grouping",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic analysis
+  python main_clean.py /path/to/fastq/files -o results/
+  
+  # Memory-efficient with sketching (Phase 1)
+  python main_clean.py /path/to/fastq/files -o results/ --use-sketching --sketch-size 2000
+  
+  # Large dataset with sparse analysis
+  python main_clean.py /path/to/fastq/files -o results/ --use-sketching --similarity-threshold 0.15
+        """
     )
+    
+    # Required arguments
     parser.add_argument("input_dir", help="Directory containing FASTQ files")
-    parser.add_argument(
-        "-o",
-        "--output",
-        default="metagrouper_output",
-        help="Output directory (default: metagrouper_output)",
-    )
+    parser.add_argument("-o", "--output", default="metagrouper_output", 
+                       help="Output directory (default: metagrouper_output)")
     
-    # Configuration file
-    parser.add_argument(
-        "--config",
-        help="Configuration file (JSON format)"
-    )
+    # Core k-mer arguments
+    parser.add_argument("-k", "--kmer-size", type=int, default=21, 
+                       help="K-mer size (default: 21)")
+    parser.add_argument("--max-reads", type=int, 
+                       help="Maximum reads per sample (for testing)")
+    parser.add_argument("--min-kmer-freq", type=int, default=1,
+                       help="Minimum k-mer frequency (default: 1)")
     
-    # Profiling arguments
-    parser.add_argument(
-        "-k", "--kmer-size", type=int, default=21, help="K-mer size (default: 21)"
-    )
-    parser.add_argument(
-        "--max-reads", type=int, help="Maximum reads per sample (for testing)"
-    )
-    parser.add_argument(
-        "--min-kmer-freq",
-        type=int,
-        default=1,
-        help="Minimum k-mer frequency to keep (filters rare k-mers, default: 1)"
-    )
-    parser.add_argument(
-        "--memory-efficient",
-        action="store_true",
-        default=True,
-        help="Use memory-efficient processing (default: enabled)"
-    )
-    parser.add_argument(
-        "--no-memory-efficient",
-        action="store_true",
-        help="Disable memory-efficient processing (load all data into memory)"
-    )
+    # Phase 1 arguments
+    parser.add_argument("--use-sketching", action="store_true",
+                       help="Use streaming k-mer sketches for memory efficiency")
+    parser.add_argument("--sketch-size", type=int, default=1000,
+                       help="K-mer sketch size (default: 1000)")
+    parser.add_argument("--sampling-method", choices=["reservoir", "frequency", "adaptive"],
+                       default="frequency", help="Sketching method (default: frequency)")
+    parser.add_argument("--similarity-threshold", type=float, default=0.1,
+                       help="Sparse similarity threshold (default: 0.1)")
     
     # Processing arguments
-    parser.add_argument(
-        "--processes",
-        type=int,
-        help="Number of parallel processes (default: CPU count)"
-    )
-    parser.add_argument(
-        "--sequential",
-        action="store_true",
-        help="Disable parallel processing (use sequential mode)"
-    )
+    parser.add_argument("--processes", type=int,
+                       help="Number of parallel processes (default: CPU count)")
+    parser.add_argument("--sequential", action="store_true",
+                       help="Use sequential processing")
     
     # Analysis arguments
-    parser.add_argument(
-        "--distance-metric",
-        default="braycurtis",
-        choices=["braycurtis", "jaccard", "cosine", "euclidean"],
-        help="Distance metric (default: braycurtis)",
-    )
+    parser.add_argument("--distance-metric", default="jaccard",
+                       choices=["jaccard", "weighted_jaccard", "cosine"],
+                       help="Similarity metric (default: jaccard)")
     
-    # Phase 2 arguments
-    parser.add_argument(
-        "-m", "--metadata", help="Metadata file (CSV/TSV) for Phase 2 analysis"
-    )
-    parser.add_argument(
-        "--sample-id-column",
-        default="sample_id",
-        help="Column name for sample IDs in metadata (default: sample_id)",
-    )
-    parser.add_argument(
-        "--variables",
-        nargs="+",
-        help="Specific metadata variables to analyze (default: all)",
-    )
-    parser.add_argument(
-        "--permutations",
-        type=int,
-        default=999,
-        help="Number of permutations for PERMANOVA (default: 999)",
-    )
-    parser.add_argument(
-        "--cluster-range",
-        nargs=2,
-        type=int,
-        default=[2, 8],
-        help="Range for number of clusters to test (default: 2 8)",
-    )
-
-    # Phase 3 arguments
-    parser.add_argument(
-        "--assembly-tools",
-        nargs="+",
-        choices=["megahit", "spades", "flye", "all"],
-        default=["megahit", "spades"],
-        help="Assembly tools to generate commands for (default: megahit spades)",
-    )
-    parser.add_argument(
-        "--similarity-threshold",
-        type=float,
-        default=0.30,
-        help="Distance threshold for grouping samples (default: 0.30)",
-    )
-    parser.add_argument(
-        "--min-group-size",
-        type=int,
-        default=2,
-        help="Minimum samples per assembly group (default: 2)",
-    )
-    parser.add_argument(
-        "--max-group-size",
-        type=int,
-        default=10,
-        help="Maximum samples per assembly group (default: 10)",
-    )
-
+    # Other arguments
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
-
-    return parser.parse_args()
-
-
-def run_phase1_analysis(config: MetaGrouperConfig, fastq_files: list) -> tuple:
-    """Run Phase 1: K-mer profiling and similarity analysis."""
-    print("\n🧬 Phase 1: K-mer Profiling and Similarity Analysis")
-    print("=" * 60)
     
-    # Initialize profiler
-    profiler = KmerProfiler(
-        k=config.profiling.k_size,
-        max_reads=config.profiling.max_reads,
-        min_kmer_freq=config.profiling.min_kmer_freq
-    )
-    
-    # Process samples
-    if config.processing.sequential or len(fastq_files) <= 2:
-        logging.info("Using sequential processing")
-        failed_samples = []
-        for filepath, sample_name in fastq_files:
-            try:
-                profiler.profile_sample(
-                    filepath, 
-                    sample_name, 
-                    memory_efficient=config.profiling.memory_efficient
-                )
-            except Exception as e:
-                logging.error(f"Failed to process {sample_name}: {e}")
-                failed_samples.append(sample_name)
-    else:
-        logging.info("Using parallel processing")
-        try:
-            profiles, failed_samples = profiler.process_samples_parallel(
-                fastq_files,
-                n_processes=config.processing.n_processes,
-                show_progress=config.processing.show_progress,
-                memory_efficient=config.profiling.memory_efficient
-            )
-        except Exception as e:
-            logging.error(f"Parallel processing failed: {e}, falling back to sequential")
-            failed_samples = []
-            for filepath, sample_name in fastq_files:
-                try:
-                    profiler.profile_sample(
-                        filepath, 
-                        sample_name, 
-                        memory_efficient=config.profiling.memory_efficient
-                    )
-                except Exception as e:
-                    logging.error(f"Failed to process {sample_name}: {e}")
-                    failed_samples.append(sample_name)
-    
-    if not profiler.profiles:
-        raise RuntimeError("No samples were successfully processed")
-    
-    # Analyze similarities
-    analyzer = SimilarityAnalyzer(
-        profiler.profiles, 
-        memory_efficient=config.analysis.memory_efficient
-    )
-    distance_matrix = analyzer.compute_distance_matrix(metric=config.analysis.distance_metric)
-    
-    # Perform dimensionality reduction
-    pca_result, pca = analyzer.perform_pca()
-    mds_result = analyzer.perform_mds()
-    
-    print(f"✅ Successfully processed {len(profiler.profiles)} samples")
-    if failed_samples:
-        print(f"⚠️  Failed to process {len(failed_samples)} samples")
-    
-    return profiler, analyzer, distance_matrix, pca_result, pca, mds_result, failed_samples
+    return parser
 
 
-def run_phase2_analysis(config: MetaGrouperConfig, distance_matrix, sample_names, 
-                       pca_result, pca, output_path, args):
-    """Run Phase 2: Metadata analysis (if available and requested)."""
-    if not args.metadata or not PHASE2_AVAILABLE:
-        return None, {}
-    
-    print("\n📊 Phase 2: Metadata Analysis")
-    print("=" * 60)
-    
-    try:
-        # Initialize metadata analyzer
-        meta_analyzer = MetadataAnalyzer(distance_matrix, sample_names)
-        meta_analyzer.load_metadata(args.metadata, args.sample_id_column)
-        
-        # Analyze variables
-        metadata_results_df = meta_analyzer.analyze_variables(
-            variables=args.variables, n_permutations=args.permutations
-        )
-        
-        # Identify clusters
-        cluster_results = meta_analyzer.identify_clusters(
-            n_clusters_range=tuple(args.cluster_range)
-        )
-        
-        # Generate Phase 2 visualizations
-        meta_visualizer = MetadataVisualizer(sample_names, meta_analyzer.metadata)
-        
-        # Variable importance plot
-        meta_visualizer.plot_variable_importance(
-            metadata_results_df, output_path / "variable_importance.png"
-        )
-        
-        # Plot PCA colored by top variables
-        if not metadata_results_df.empty:
-            valid_results = metadata_results_df.dropna(subset=["r_squared"])
-            top_variables = valid_results.head(3)["variable"].tolist()
-            
-            for var in top_variables:
-                safe_var_name = var.replace(" ", "_").replace("/", "_")
-                meta_visualizer.plot_samples_by_variable(
-                    pca_result,
-                    var,
-                    output_path / f"pca_by_{safe_var_name}.png",
-                    pca,
-                )
-        
-        # Plot clustering results
-        for method, method_results in cluster_results.items():
-            if "optimal" in method_results:
-                optimal = method_results["optimal"]
-                meta_visualizer.plot_clustering_results(
-                    pca_result,
-                    optimal["labels"],
-                    method,
-                    optimal["n_clusters"],
-                    output_path / f"clustering_{method}.png",
-                )
-        
-        # Generate summary report
-        generate_summary_report(
-            metadata_results_df, cluster_results, output_path / "analysis_report.md"
-        )
-        
-        # Save metadata analysis results
-        if not metadata_results_df.empty:
-            metadata_results_df.to_csv(output_path / "permanova_results.csv", index=False)
-        
-        print("✅ Phase 2 analysis completed successfully")
-        return metadata_results_df, cluster_results
-        
-    except Exception as e:
-        logging.error(f"Phase 2 analysis failed: {e}")
-        print(f"❌ Phase 2 analysis failed: {e}")
-        return None, {}
-
-
-def run_phase3_analysis(config: MetaGrouperConfig, distance_matrix, sample_names,
-                       metadata_results_df, output_path, args):
-    """Run Phase 3: Assembly recommendations (if available)."""
-    if not PHASE3_AVAILABLE:
-        return None
-    
-    print("\n🔧 Phase 3: Assembly Strategy Recommendations")
-    print("=" * 60)
-    
-    try:
-        # Initialize assembly recommender
-        recommender = AssemblyRecommender(distance_matrix, sample_names)
-        
-        # Configure thresholds
-        recommender.strategy_engine.similarity_threshold_medium = args.similarity_threshold
-        recommender.strategy_engine.min_group_size = args.min_group_size
-        recommender.strategy_engine.max_group_size = args.max_group_size
-        
-        # Generate recommendations
-        tools = ["megahit", "spades", "flye"] if "all" in args.assembly_tools else args.assembly_tools
-        
-        assembly_recommendation = recommender.generate_recommendations(
-            metadata_results=metadata_results_df,
-            metadata=getattr(locals().get('meta_analyzer'), 'metadata', None)
-        )
-        
-        # Filter assembly commands
-        filtered_commands = {
-            tool: commands
-            for tool, commands in assembly_recommendation.assembly_commands.items()
-            if tool in tools
-        }
-        assembly_recommendation.assembly_commands = filtered_commands
-        
-        # Save recommendations
-        save_recommendations(assembly_recommendation, output_path / "assembly_recommendations")
-        
-        # Create visualization
-        visualize_assembly_strategy(
-            assembly_recommendation,
-            distance_matrix,
-            sample_names,
-            output_path / "assembly_strategy_overview.png",
-        )
-        
-        print(f"✅ Phase 3 analysis completed successfully")
-        print(f"   Strategy: {assembly_recommendation.strategy.title()}")
-        print(f"   Confidence: {assembly_recommendation.overall_confidence:.2f}")
-        print(f"   Groups: {len(assembly_recommendation.groups)}")
-        
-        return assembly_recommendation
-        
-    except Exception as e:
-        logging.error(f"Phase 3 analysis failed: {e}")
-        print(f"❌ Phase 3 analysis failed: {e}")
-        return None
-
-
-def generate_visualizations(visualizer, distance_matrix, pca_result, pca, mds_result, output_path):
-    """Generate all Phase 1 visualizations."""
-    print("\n📈 Generating visualizations...")
-    
-    visualizer.plot_distance_heatmap(distance_matrix, output_path / "distance_heatmap.png")
-    visualizer.plot_pca(pca_result, pca, output_path / "pca_plot.png")
-    visualizer.plot_mds(mds_result, output_path / "mds_plot.png")
-    
-    # Generate additional comprehensive plots
-    visualizer.plot_sample_overview(distance_matrix, pca_result, mds_result, pca, 
-                                   output_path / "sample_overview.png")
-    visualizer.plot_clustering_dendrogram(distance_matrix, output_path / "dendrogram.png")
-    visualizer.plot_distance_distribution(distance_matrix, output_path / "distance_distribution.png")
-
-
-def print_summary(config: MetaGrouperConfig, profiler, failed_samples, 
-                 metadata_results_df, assembly_recommendation):
-    """Print analysis summary."""
-    print("\n" + "="*60)
-    print("🎉 MetaGrouper Analysis Complete!")
-    print("="*60)
-    
-    print(f"📊 Processed: {len(profiler.profiles)} samples")
-    print(f"🧬 K-mer size: {config.profiling.k_size}")
-    print(f"📏 Distance metric: {config.analysis.distance_metric}")
-    print(f"📁 Results saved to: {config.output.output_dir}")
-    
-    if failed_samples:
-        print(f"⚠️  Failed samples: {len(failed_samples)}")
-    
-    print(f"\n📋 Phase 1 Files:")
-    print(f"   • distance_heatmap.png: Sample distance matrix")
-    print(f"   • pca_plot.png: PCA analysis")
-    print(f"   • mds_plot.png: MDS analysis")
-    print(f"   • sample_overview.png: Comprehensive overview")
-    print(f"   • dendrogram.png: Hierarchical clustering")
-    print(f"   • distance_distribution.png: Distance statistics")
-    
-    if metadata_results_df is not None and not metadata_results_df.empty:
-        print(f"\n📋 Phase 2 Files:")
-        print(f"   • analysis_report.md: Comprehensive report")
-        print(f"   • variable_importance.png: Variable ranking")
-        print(f"   • permanova_results.csv: Statistical results")
-        print(f"   • pca_by_*.png: PCA colored by variables")
-        print(f"   • clustering_*.png: Clustering results")
-    
-    if assembly_recommendation is not None:
-        print(f"\n📋 Phase 3 Files:")
-        print(f"   • assembly_recommendations/: Detailed recommendations")
-        print(f"   • assembly_strategy.md: Human-readable strategy")
-        print(f"   • run_*_assemblies.sh: Executable scripts")
-        print(f"   • assembly_strategy_overview.png: Strategy visualization")
-
-
-def main():
-    """Main analysis workflow."""
-    args = parse_arguments()
-    
-    # Initialize configuration
-    config = MetaGrouperConfig(args.config if args.config else None)
-    config.update_from_args(args)
-    config.validate()
-    
+def run_analysis(args):
+    """Run the main analysis workflow."""
     # Setup logging
-    setup_logging(config.output.verbose, config.output.log_file)
+    setup_logging(args.verbose)
     
-    # Print configuration summary
-    if config.output.verbose:
-        print(config.get_summary())
-        print()
+    print("🧬 MetaGrouper Analysis")
+    print("=" * 50)
     
-    # Find and validate input files
-    logging.info(f"Searching for FASTQ files in {args.input_dir}")
+    # Validate input
+    if not Path(args.input_dir).exists():
+        logging.error(f"Input directory not found: {args.input_dir}")
+        return False
+    
+    # Find FASTQ files
+    logging.info("Finding FASTQ files...")
     fastq_files = find_fastq_files(args.input_dir)
-    
     if not fastq_files:
-        logging.error(f"No FASTQ files found in {args.input_dir}")
-        sys.exit(1)
+        logging.error("No FASTQ files found")
+        return False
     
     logging.info(f"Found {len(fastq_files)} samples")
     
     # Create output directory
-    output_path = Path(config.output.output_dir)
-    output_path.mkdir(exist_ok=True)
+    output_path = Path(args.output)
+    output_path.mkdir(parents=True, exist_ok=True)
     
-    # Save configuration
-    config.save_to_file(output_path / "analysis_config.json")
+    # Choose profiler based on options
+    if args.use_sketching and PHASE1_AVAILABLE:
+        print(f"🚀 Using Phase 1 optimizations (sketching + sparse analysis)")
+        print(f"   Sketch size: {args.sketch_size}")
+        print(f"   Sampling method: {args.sampling_method}")
+        print(f"   Similarity threshold: {args.similarity_threshold}")
+        
+        profiler = StreamingKmerProfiler(
+            k=args.kmer_size,
+            max_reads=args.max_reads,
+            min_kmer_freq=args.min_kmer_freq,
+            sketch_size=args.sketch_size,
+            sampling_method=args.sampling_method
+        )
+    else:
+        print(f"📊 Using traditional k-mer profiling")
+        profiler = KmerProfiler(
+            k=args.kmer_size,
+            max_reads=args.max_reads,
+            min_kmer_freq=args.min_kmer_freq
+        )
     
+    # Process samples
+    print(f"\n🔬 Processing {len(fastq_files)} samples...")
+    start_time = time.time()
+    
+    profiles = {}
+    failed_samples = []
+    
+    for i, (filepath, sample_name) in enumerate(fastq_files):
+        if i % 10 == 0 or i == len(fastq_files) - 1:
+            print(f"   Progress: {i+1}/{len(fastq_files)} samples")
+        
+        try:
+            profile = profiler.profile_sample(filepath, sample_name)
+            profiles[sample_name] = profile
+        except Exception as e:
+            logging.error(f"Failed to process {sample_name}: {e}")
+            failed_samples.append(sample_name)
+    
+    processing_time = time.time() - start_time
+    success_count = len(profiles)
+    
+    print(f"✅ Processed {success_count}/{len(fastq_files)} samples in {processing_time:.1f}s")
+    if failed_samples:
+        print(f"❌ Failed samples: {', '.join(failed_samples)}")
+    
+    if not profiles:
+        logging.error("No samples processed successfully")
+        return False
+    
+    # Memory usage report for sketching
+    if isinstance(profiler, StreamingKmerProfiler):
+        memory_info = profiler.estimate_memory_usage()
+        print(f"💾 Memory usage: {memory_info['sketch_memory_mb']:.1f} MB")
+        print(f"💾 Memory reduction: {memory_info['memory_reduction']:.1f}x vs full profiles")
+    
+    # Similarity analysis
+    print(f"\n🔗 Computing similarity matrix...")
+    start_time = time.time()
+    
+    if args.use_sketching and PHASE1_AVAILABLE:
+        # Use sparse similarity analysis
+        analyzer = SparseSimilarityAnalyzer(similarity_threshold=args.similarity_threshold)
+        similarity_matrix, sample_names = analyzer.compute_similarities(profiles, method=args.distance_metric)
+        
+        # Get sparse statistics
+        sparse_stats = analyzer.compute_summary_statistics()
+        similarity_time = time.time() - start_time
+        
+        print(f"✅ Sparse similarity computed in {similarity_time:.1f}s")
+        print(f"📊 Sparsity: {sparse_stats['sparsity']:.1%}")
+        print(f"📊 Significant pairs: {sparse_stats['n_significant_pairs']:,}")
+        
+        # Save sparse matrix
+        analyzer.save_similarity_matrix(str(output_path / "similarity_matrix.npz"), format='npz')
+        
+    else:
+        # Traditional dense similarity (for small datasets)
+        from metagrouper.analyzer import SimilarityAnalyzer
+        analyzer = SimilarityAnalyzer(profiles)
+        distance_matrix = analyzer.compute_distance_matrix(metric=args.distance_metric)
+        similarity_matrix = 1 - distance_matrix
+        sample_names = list(profiles.keys())
+        
+        similarity_time = time.time() - start_time
+        print(f"✅ Dense similarity computed in {similarity_time:.1f}s")
+        
+        # Save results
+        save_results(profiles, distance_matrix, sample_names, args.output)
+    
+    # Generate basic visualization
     try:
-        # Phase 1: K-mer profiling and similarity analysis
-        profiler, analyzer, distance_matrix, pca_result, pca, mds_result, failed_samples = \
-            run_phase1_analysis(config, fastq_files)
+        from metagrouper.visualizer import Visualizer
+        visualizer = Visualizer()
         
-        # Generate Phase 1 visualizations
-        visualizer = Visualizer(profiler.sample_names)
-        generate_visualizations(visualizer, distance_matrix, pca_result, pca, mds_result, output_path)
+        if args.use_sketching:
+            # Convert sparse to dense for visualization (small matrices only)
+            if len(sample_names) <= 100:
+                dense_similarity = similarity_matrix.toarray()
+                visualizer.plot_distance_heatmap(1 - dense_similarity, sample_names, 
+                                                str(output_path / "similarity_heatmap.png"))
+        else:
+            visualizer.plot_distance_heatmap(distance_matrix, sample_names,
+                                           str(output_path / "distance_heatmap.png"))
         
-        # Save Phase 1 results
-        save_results(profiler.profiles, distance_matrix, profiler.sample_names, config.output.output_dir)
-        
-        # Phase 2: Metadata analysis (optional)
-        metadata_results_df, cluster_results = run_phase2_analysis(
-            config, distance_matrix, profiler.sample_names, pca_result, pca, output_path, args
-        )
-        
-        # Phase 3: Assembly recommendations (optional)
-        assembly_recommendation = run_phase3_analysis(
-            config, distance_matrix, profiler.sample_names, metadata_results_df, output_path, args
-        )
-        
-        # Print summary
-        print_summary(config, profiler, failed_samples, metadata_results_df, assembly_recommendation)
+        print(f"📈 Visualization saved to {output_path}")
         
     except Exception as e:
-        logging.error(f"Analysis failed: {e}")
-        print(f"\n❌ Analysis failed: {e}")
-        if config.output.verbose:
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
+        logging.warning(f"Visualization failed: {e}")
+    
+    # Summary
+    total_time = processing_time + similarity_time
+    print(f"\n🎯 Analysis Complete!")
+    print(f"   Total time: {total_time:.1f}s")
+    print(f"   Samples processed: {success_count}")
+    print(f"   Results saved to: {args.output}")
+    
+    if args.use_sketching:
+        print(f"   Memory efficiency: {memory_info['memory_reduction']:.1f}x improvement")
+        print(f"   Sparsity benefit: {sparse_stats['sparsity']:.1%} memory saved")
+    
+    return True
+
+
+def main():
+    """Main entry point."""
+    parser = create_parser()
+    args = parser.parse_args()
+    
+    if not PHASE1_AVAILABLE and args.use_sketching:
+        print("❌ Phase 1 optimizations not available but requested")
+        print("   Install Phase 1 components or remove --use-sketching flag")
+        return 1
+    
+    success = run_analysis(args)
+    return 0 if success else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
