@@ -15,22 +15,30 @@ from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Union
 from pathlib import Path
 
+try:
+    from .fast_kmer import FastKmerExtractor
+    FAST_KMER_AVAILABLE = True
+except ImportError:
+    FAST_KMER_AVAILABLE = False
+    logging.warning("Fast k-mer extraction not available")
+
 
 def process_sample_worker(args):
     """
     Worker function for multiprocessing sample processing.
     
     Args:
-        args: Tuple containing (filepath, sample_name, k, max_reads, min_kmer_freq, memory_efficient, progress_dict, lock)
+        args: Tuple containing (filepath, sample_name, k, max_reads, min_kmer_freq, memory_efficient, use_fast_extraction, progress_dict, lock)
     
     Returns:
         Tuple containing (sample_name, profile, error_message)
     """
-    filepath, sample_name, k, max_reads, min_kmer_freq, memory_efficient, progress_dict, lock = args
+    filepath, sample_name, k, max_reads, min_kmer_freq, memory_efficient, use_fast_extraction, progress_dict, lock = args
     
     try:
         # Create a temporary profiler for this worker
-        profiler = KmerProfiler(k=k, max_reads=max_reads, min_kmer_freq=min_kmer_freq)
+        profiler = KmerProfiler(k=k, max_reads=max_reads, min_kmer_freq=min_kmer_freq, 
+                               use_fast_extraction=use_fast_extraction)
         profile = profiler.profile_sample(filepath, sample_name, memory_efficient=memory_efficient)
         
         # Update progress safely
@@ -53,12 +61,25 @@ def process_sample_worker(args):
 class KmerProfiler:
     """Handle k-mer profiling of metagenomic samples."""
 
-    def __init__(self, k: int = 21, max_reads: Optional[int] = None, min_kmer_freq: int = 1):
+    def __init__(self, k: int = 21, max_reads: Optional[int] = None, min_kmer_freq: int = 1, 
+                 use_fast_extraction: bool = True):
         self.k = k
         self.max_reads = max_reads
         self.min_kmer_freq = min_kmer_freq  # Filter out low-frequency k-mers
         self.profiles = {}
         self.sample_names = []
+        
+        # Initialize fast extraction if available and requested
+        self.use_fast_extraction = use_fast_extraction and FAST_KMER_AVAILABLE and k <= 32
+        if self.use_fast_extraction:
+            self.fast_extractor = FastKmerExtractor(k)
+            logging.debug(f"Using fast k-mer extraction for k={k}")
+        else:
+            if use_fast_extraction and not FAST_KMER_AVAILABLE:
+                logging.warning("Fast k-mer extraction requested but not available, using legacy method")
+            elif use_fast_extraction and k > 32:
+                logging.warning(f"Fast k-mer extraction not supported for k={k} > 32, using legacy method")
+            logging.debug(f"Using legacy k-mer extraction for k={k}")
 
     def _open_file(self, filepath: str):
         """Open file, handling gzip compression."""
@@ -68,6 +89,13 @@ class KmerProfiler:
 
     def _extract_kmers(self, sequence: str) -> Dict[str, int]:
         """Extract k-mers from a sequence."""
+        if self.use_fast_extraction:
+            return self.fast_extractor.extract_kmers_with_strings(sequence)
+        else:
+            return self._extract_kmers_legacy(sequence)
+    
+    def _extract_kmers_legacy(self, sequence: str) -> Dict[str, int]:
+        """Legacy k-mer extraction using string operations."""
         kmers = defaultdict(int)
         for i in range(len(sequence) - self.k + 1):
             kmer = sequence[i : i + self.k]
@@ -289,7 +317,7 @@ class KmerProfiler:
         
         # Prepare arguments for worker processes
         worker_args = [
-            (filepath, sample_name, self.k, self.max_reads, self.min_kmer_freq, memory_efficient, progress_dict, lock)
+            (filepath, sample_name, self.k, self.max_reads, self.min_kmer_freq, memory_efficient, self.use_fast_extraction, progress_dict, lock)
             for filepath, sample_name in fastq_files
         ]
         
