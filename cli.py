@@ -34,6 +34,9 @@ Examples:
   # Full analysis with assembly recommendations
   metagrouper samples/ -m metadata.csv --assembly-tools all -o results/
 
+  # Generate comprehensive interactive report
+  metagrouper samples/ -m metadata.csv --comprehensive-report -o results/
+
   # Quick test with reduced parameters
   metagrouper samples/ --kmer-size 15 --max-reads 1000 --permutations 99
 

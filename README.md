@@ -35,6 +35,13 @@ MetaGrouper helps researchers make data-driven decisions about how to group meta
 
 **Result**: More biologically meaningful sample groupings and better assembly recommendations!
 
+### 🌟 **New Interactive HTML Reports**
+- **Comprehensive interactive reports** with dynamic visualizations
+- **Explained assembly strategies** with decision trees and confidence explanations
+- **Interactive threshold exploration** - see how different settings affect groupings
+- **Professional publication-ready layout** with export capabilities
+- **Real-time data exploration** with hover, zoom, and filtering
+
 ## Installation
 
 ### Requirements
@@ -130,6 +137,13 @@ python metagrouper.py /path/to/fastq/files/ \
   --assembly-tools megahit spades \
   --similarity-threshold 0.45 \
   --permutations 999
+
+# Generate comprehensive interactive HTML report
+python metagrouper.py /path/to/fastq/files/ \
+  --metadata samples_metadata.csv \
+  --output results/ \
+  --comprehensive-report \
+  --html-title "My Metagenomic Analysis"
 ```
 
 ## Input Requirements
@@ -173,6 +187,14 @@ sample_003,P002,baseline,control,site_B
   - `assembly_recommendations.json` - Machine-readable results
   - `run_megahit_assemblies.sh` - MEGAHIT assembly commands
   - `run_spades_assemblies.sh` - SPAdes assembly commands
+
+### 🌟 Interactive HTML Report (New!)
+- `interactive_report.html` - **Comprehensive interactive analysis report**
+  - 📊 **Dynamic visualizations** (PCA, distance heatmaps) with zoom/pan/hover
+  - 🎯 **Assembly strategy explanations** with decision trees and confidence metrics
+  - 🎚️ **Interactive threshold explorer** - see how different settings affect groupings
+  - 📋 **Professional layout** with executive summary and detailed sections
+  - 💾 **Export capabilities** for sharing and publication
   - `run_flye_assemblies.sh` - Flye assembly commands (if requested)
 - `assembly_strategy_overview.png` - Visual strategy summary
 

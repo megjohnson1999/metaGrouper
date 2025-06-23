@@ -64,6 +64,13 @@ python metagrouper.py /path/to/fastq/files/ \
   --similarity-threshold 0.45 \
   --permutations 999
 
+# Generate comprehensive interactive HTML report
+python metagrouper.py /path/to/fastq/files/ \
+  --metadata samples_metadata.csv \
+  --output results/ \
+  --comprehensive-report \
+  --html-title "My Analysis"
+
 # Preprocessing raw data
 python preprocess.py raw_data/ -o clean_data/
 ```
@@ -87,11 +94,19 @@ MetaGrouper has been updated with research-based similarity thresholds:
 - Updated all configuration files and presets
 - Improved assembly strategy recommendations
 
+### Interactive HTML Reports (New!)
+- Comprehensive interactive reports with dynamic visualizations
+- Explained assembly strategies with decision trees and confidence metrics
+- Interactive threshold exploration with real-time grouping updates
+- Professional publication-ready layout with export capabilities
+- Built using Plotly for responsive, interactive charts
+
 ### Benefits
 - More biologically meaningful sample groupings
 - Better detection of similar samples for co-assembly
 - Reduced false negative groupings
 - Improved statistical robustness
+- Enhanced user experience with interactive analysis exploration
 
 ## Architecture
 

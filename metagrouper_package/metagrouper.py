@@ -152,6 +152,8 @@ Examples:
                        help="Generate interactive HTML visualizations")
     parser.add_argument("--interactive-only", action="store_true", 
                        help="Generate only interactive plots, skip static plots")
+    parser.add_argument("--comprehensive-report", action="store_true",
+                       help="Generate comprehensive interactive HTML report with explanations")
     parser.add_argument("--html-title", default="MetaGrouper Analysis",
                        help="Title for interactive HTML reports")
     
@@ -553,6 +555,51 @@ def run_analysis(args):
         print(f"   • Confidence: {assembly_recommendation.overall_confidence:.1%}")
         print(f"   • Assembly groups: {len(assembly_recommendation.groups)}")
         print(f"   • Assembly tools: {', '.join(assembly_recommendation.assembly_commands.keys())}")
+    
+    # =============================================================================
+    # PHASE 4 (Enhanced): Comprehensive Interactive Report
+    # =============================================================================
+    
+    if args.comprehensive_report or args.interactive:
+        try:
+            print(f"\n🌟 Generating comprehensive interactive report...")
+            
+            # Import the report generator
+            import sys
+            parent_path = str(Path(__file__).parent.parent)
+            if parent_path not in sys.path:
+                sys.path.insert(0, parent_path)
+            
+            from interactive_report_generator import create_interactive_report
+            
+            # Collect all data for the report
+            kmer_data_dict = None
+            if 'kmer_profiles' in locals():
+                kmer_data_dict = {'profiles': kmer_profiles}
+            
+            # Generate the comprehensive report
+            metadata_for_report = None
+            if run_phase2 and 'meta_analyzer' in locals():
+                metadata_for_report = meta_analyzer.metadata
+            
+            report_path = create_interactive_report(
+                distance_matrix=distance_matrix,
+                sample_names=sample_names,
+                output_dir=str(output_path),
+                metadata=metadata_for_report,
+                permanova_results=metadata_results_df if run_phase2 and 'metadata_results_df' in locals() and not metadata_results_df.empty else None,
+                assembly_recommendation=assembly_recommendation if run_phase3 else None,
+                kmer_data=kmer_data_dict,
+                title=args.html_title
+            )
+            
+            print(f"✅ Comprehensive interactive report generated!")
+            print(f"   📄 {report_path}")
+            print(f"   🎯 Open in browser for interactive exploration")
+            
+        except Exception as e:
+            logging.warning(f"Comprehensive report generation failed: {e}")
+            print(f"⚠️  Could not generate comprehensive report: {e}")
     
     print(f"\n📁 Results saved to: {args.output}")
     print(f"📚 Check the output directory for detailed results and visualizations")
