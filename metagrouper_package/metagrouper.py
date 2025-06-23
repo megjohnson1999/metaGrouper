@@ -61,6 +61,14 @@ except ImportError as e:
     PHASE3_AVAILABLE = False
     logging.warning(f"Phase 3 assembly recommendations not available: {e}")
 
+# Phase 4 imports
+try:
+    from metagrouper.interactive_visualizer import InteractiveVisualizer
+    PHASE4_AVAILABLE = True
+except ImportError as e:
+    PHASE4_AVAILABLE = False
+    logging.warning(f"Phase 4 interactive visualizations not available: {e}")
+
 
 def create_parser():
     """Create command-line argument parser."""
@@ -134,6 +142,14 @@ Examples:
                        help="Number of parallel processes (default: CPU count)")
     parser.add_argument("--sequential", action="store_true",
                        help="Use sequential processing")
+    
+    # Interactive visualization (Phase 4)
+    parser.add_argument("--interactive", action="store_true",
+                       help="Generate interactive HTML visualizations")
+    parser.add_argument("--interactive-only", action="store_true", 
+                       help="Generate only interactive plots, skip static plots")
+    parser.add_argument("--html-title", default="MetaGrouper Analysis",
+                       help="Title for interactive HTML reports")
     
     # Other arguments
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
@@ -295,20 +311,83 @@ def run_analysis(args):
     # Generate Phase 1 visualizations
     print(f"\n📈 Generating Phase 1 visualizations...")
     try:
-        visualizer = Visualizer(sample_names)
+        # Load metadata if available for interactive plots
+        metadata_for_viz = None
+        if args.metadata:
+            try:
+                metadata_for_viz = pd.read_csv(args.metadata, sep=None, engine='python')
+            except Exception as e:
+                logging.warning(f"Could not load metadata for visualization: {e}")
         
-        # Basic distance heatmap
-        if len(sample_names) <= 100:  # Only for reasonably sized matrices
-            visualizer.plot_distance_heatmap(distance_matrix, output_path / "distance_heatmap.png")
+        # Generate interactive visualizations if requested
+        if (args.interactive or args.interactive_only) and PHASE4_AVAILABLE:
+            print(f"🌐 Generating interactive HTML visualizations...")
+            interactive_viz = InteractiveVisualizer(sample_names, metadata_for_viz)
+            
+            if pca_result is not None:
+                # Enhanced multi-method dimensionality plot (Phase 4.2)
+                # Need to reconstruct data matrix for t-SNE/UMAP
+                sample_data = []
+                for sample in sample_names:
+                    if sample in profiles:
+                        profile = profiles[sample]
+                        sample_data.append([profile.get(kmer, 0) for kmer in sorted(set().union(*[p.keys() for p in profiles.values()]))])
+                
+                if sample_data:
+                    data_matrix = np.array(sample_data)
+                    interactive_viz.create_enhanced_dimensionality_plot(
+                        data_matrix,
+                        output_path / "interactive_enhanced.html",
+                        title=f"{args.html_title} - Enhanced Analysis (PCA/t-SNE/UMAP)"
+                    )
+                
+                # Original Interactive PCA plot
+                interactive_viz.create_interactive_pca(
+                    pca_result, pca, 
+                    output_path / "interactive_pca.html",
+                    title=f"{args.html_title} - PCA Analysis"
+                )
+                
+                # Interactive heatmap (for reasonable dataset sizes)
+                if len(sample_names) <= 100:
+                    interactive_viz.create_interactive_heatmap(
+                        distance_matrix, 
+                        output_path / "interactive_heatmap.html",
+                        title=f"{args.html_title} - Distance Heatmap"
+                    )
+                
+                # Unified dashboard
+                interactive_viz.create_dashboard(
+                    pca_result, pca, distance_matrix,
+                    output_path / "interactive_dashboard.html", 
+                    title=f"{args.html_title} - Interactive Dashboard"
+                )
+                
+                print(f"✅ Interactive visualizations saved to:")
+                print(f"   - interactive_enhanced.html (🌟 PCA/t-SNE/UMAP)")
+                print(f"   - interactive_pca.html")
+                if len(sample_names) <= 100:
+                    print(f"   - interactive_heatmap.html")
+                print(f"   - interactive_dashboard.html")
         
-        # PCA plot
-        if pca_result is not None:
-            visualizer.plot_pca(pca_result, pca, output_path / "pca_plot.png")
-        
-        print(f"✅ Phase 1 visualizations saved")
+        # Generate static visualizations (unless interactive-only is specified)
+        if not args.interactive_only:
+            visualizer = Visualizer(sample_names)
+            
+            # Basic distance heatmap
+            if len(sample_names) <= 100:  # Only for reasonably sized matrices
+                visualizer.plot_distance_heatmap(distance_matrix, output_path / "distance_heatmap.png")
+            
+            # PCA plot
+            if pca_result is not None:
+                visualizer.plot_pca(pca_result, pca, output_path / "pca_plot.png")
+            
+            print(f"✅ Static visualizations saved")
         
     except Exception as e:
         logging.warning(f"Phase 1 visualization failed: {e}")
+        import traceback
+        traceback.print_exc()
     
     # =============================================================================
     # PHASE 2: Metadata Analysis (if requested)
