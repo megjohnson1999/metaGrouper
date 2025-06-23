@@ -24,6 +24,17 @@ MetaGrouper helps researchers make data-driven decisions about how to group meta
 - ⚡ **Memory-efficient** processing for large datasets
 - 🔧 **Configurable parameters** for different use cases
 
+## Recent Improvements (2025)
+
+✨ **Enhanced with Research-Based Thresholds**
+- Updated similarity thresholds based on microbiome research best practices
+- **New defaults**: More permissive thresholds (0.45 vs 0.30) for better biological grouping
+- **Larger co-assemblies**: Support for up to 20 samples per group (vs 10 previously)
+- **Statistical validation**: Automatic warnings for insufficient sample sizes (<10 per group)
+- **Improved documentation**: Clarified SPAdes vs MEGAHIT co-assembly capabilities
+
+**Result**: More biologically meaningful sample groupings and better assembly recommendations!
+
 ## Installation
 
 ### Requirements
@@ -117,7 +128,7 @@ python metagrouper.py /path/to/fastq/files/ \
   --metadata samples_metadata.csv \
   --output results/ \
   --assembly-tools megahit spades \
-  --similarity-threshold 0.25 \
+  --similarity-threshold 0.45 \
   --permutations 999
 ```
 
@@ -210,7 +221,7 @@ python metagrouper.py fastq_files/ \
   --kmer-size 21 \
   --permutations 9999 \
   --assembly-tools all \
-  --similarity-threshold 0.20
+  --similarity-threshold 0.35
 ```
 
 ### Example 3: Focus on Specific Variables
@@ -262,7 +273,7 @@ python metagrouper.py large_dataset/ \
   --kmer-size 17 \
   --max-reads 5000 \
   --permutations 499 \
-  --similarity-threshold 0.25
+  --similarity-threshold 0.40
 ```
 
 ### For Testing/Development

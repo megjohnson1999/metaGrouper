@@ -57,11 +57,11 @@ class AssemblyStrategyEngine:
         self.n_samples = len(sample_names)
 
         # Thresholds for assembly decisions (can be tuned)
-        self.similarity_threshold_high = 0.15  # Very similar samples
-        self.similarity_threshold_medium = 0.30  # Moderately similar samples
+        self.similarity_threshold_high = 0.25  # Very similar samples
+        self.similarity_threshold_medium = 0.45  # Moderately similar samples
         self.significance_threshold = 0.05  # P-value threshold for metadata
         self.min_group_size = 2
-        self.max_group_size = 10
+        self.max_group_size = 20
 
     def _calculate_group_statistics(
         self, group_indices: List[int]
@@ -333,7 +333,12 @@ class AssemblyCommandGenerator:
     def generate_spades_commands(
         self, groups: List[AssemblyGroup]
     ) -> Dict[str, List[str]]:
-        """Generate SPAdes metagenomic assembly commands."""
+        """Generate SPAdes metagenomic assembly commands.
+        
+        Note: SPAdes performs individual assembly on combined reads, not true 
+        co-assembly like MEGAHIT. For groups, reads are concatenated before 
+        assembly, which may result in suboptimal performance compared to MEGAHIT.
+        """
         commands = {}
 
         for group in groups:
@@ -342,7 +347,8 @@ class AssemblyCommandGenerator:
                 sample = group.sample_names[0]
                 cmd = f"spades.py --meta -s {sample}.fastq -o {sample}_spades_assembly"
             else:
-                # Co-assembly (combine reads first)
+                # Pseudo-co-assembly: combine reads then individual assembly
+                # WARNING: This is not true co-assembly like MEGAHIT
                 group_name = group.group_id
                 # Cross-platform file combination using Python
                 input_files = ' '.join([f'"{sample}.fastq"' for sample in group.sample_names])

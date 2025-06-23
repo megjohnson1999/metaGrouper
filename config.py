@@ -36,13 +36,13 @@ class MetaGrouperConfig:
             },
             "assembly_recommendations": {
                 "similarity_thresholds": {
-                    "stringent": 0.15,
-                    "medium": 0.25,
-                    "permissive": 0.40,
+                    "stringent": 0.25,
+                    "medium": 0.40,
+                    "permissive": 0.60,
                 },
-                "default_similarity_threshold": 0.30,
+                "default_similarity_threshold": 0.45,
                 "min_group_size": 2,
-                "max_group_size": 10,
+                "max_group_size": 20,
                 "supported_tools": ["megahit", "spades", "flye"],
             },
             "performance": {
@@ -62,25 +62,25 @@ class MetaGrouperConfig:
                     "kmer_size": 15,
                     "max_reads": 1000,
                     "permutations": 99,
-                    "similarity_threshold": 0.35,
+                    "similarity_threshold": 0.50,
                 },
                 "default": {
                     "kmer_size": 21,
                     "max_reads": None,
                     "permutations": 999,
-                    "similarity_threshold": 0.30,
+                    "similarity_threshold": 0.45,
                 },
                 "high_quality": {
                     "kmer_size": 25,
                     "max_reads": None,
                     "permutations": 9999,
-                    "similarity_threshold": 0.20,
+                    "similarity_threshold": 0.30,
                 },
                 "large_dataset": {
                     "kmer_size": 17,
                     "max_reads": 5000,
                     "permutations": 499,
-                    "similarity_threshold": 0.25,
+                    "similarity_threshold": 0.40,
                 },
             },
         }

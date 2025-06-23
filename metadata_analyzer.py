@@ -165,6 +165,13 @@ class MetadataAnalyzer:
         if len(missing_samples) > 0:
             logging.warning(f"Missing metadata for samples: {list(missing_samples)}")
 
+    def validate_sample_size(self, groups):
+        """Validate that groups have sufficient sample size for reliable PERMANOVA results."""
+        for group_name, group_data in groups.items():
+            if len(group_data) < 10:
+                warnings.warn(f"Group '{group_name}' has only {len(group_data)} samples. "
+                             f"PERMANOVA requires ≥10 samples per group for reliable results.")
+
     def analyze_variables(
         self, variables: Optional[List[str]] = None, n_permutations: int = 999
     ) -> pd.DataFrame:
@@ -190,8 +197,12 @@ class MetadataAnalyzer:
             # Prepare variable data
             var_data = self.metadata[variable].copy()
 
-            # Handle different data types
+            # Validate sample size for categorical variables
             if var_data.dtype == "object":
+                # Check group sizes before analysis
+                groups = var_data.dropna().groupby(var_data.dropna()).apply(list).to_dict()
+                self.validate_sample_size(groups)
+                
                 # Categorical variable
                 var_data = var_data.astype("category")
                 var_encoded = LabelEncoder().fit_transform(var_data.dropna())

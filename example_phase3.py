@@ -100,7 +100,7 @@ def run_comprehensive_example():
         "megahit",
         "spades",
         "--similarity-threshold",
-        "0.25",  # More stringent
+        "0.40",  # More stringent
         "--min-group-size",
         "2",
         "--max-group-size",
@@ -174,7 +174,7 @@ def demonstrate_assembly_tools():
                 "--assembly-tools",
             ]
             + tools
-            + ["--permutations", "99", "--similarity-threshold", "0.30"]  # Very fast
+            + ["--permutations", "99", "--similarity-threshold", "0.45"]  # Very fast
         )
 
         try:
@@ -205,7 +205,7 @@ def demonstrate_threshold_sensitivity():
         return
 
     # Test different similarity thresholds
-    thresholds = [0.10, 0.20, 0.30, 0.40]
+    thresholds = [0.25, 0.35, 0.45, 0.55]
 
     for threshold in thresholds:
         print(f"\nTesting similarity threshold: {threshold}")

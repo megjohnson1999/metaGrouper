@@ -125,8 +125,8 @@ For more information, see the tutorial: https://github.com/user/metagrouper/blob
     assembly_group.add_argument(
         "--similarity-threshold",
         type=float,
-        default=0.30,
-        help="Distance threshold for grouping samples (0.0-1.0, default: 0.30)",
+        default=0.45,
+        help="Distance threshold for grouping samples (0.0-1.0, default: 0.45)",
     )
     assembly_group.add_argument(
         "--min-group-size",
@@ -137,8 +137,8 @@ For more information, see the tutorial: https://github.com/user/metagrouper/blob
     assembly_group.add_argument(
         "--max-group-size",
         type=int,
-        default=10,
-        help="Maximum samples per assembly group (default: 10)",
+        default=20,
+        help="Maximum samples per assembly group (default: 20)",
     )
 
     # Performance options
@@ -214,13 +214,13 @@ def apply_preset_modes(args):
         args.kmer_size = 15
         args.max_reads = 1000
         args.permutations = 99
-        args.similarity_threshold = 0.35  # More permissive for faster grouping
+        args.similarity_threshold = 0.50  # More permissive for faster grouping
 
     if args.high_quality:
         print("🎯 High-quality mode enabled: optimized for accuracy")
         args.kmer_size = 25
         args.permutations = 9999
-        args.similarity_threshold = 0.20  # More stringent for better groups
+        args.similarity_threshold = 0.30  # More stringent for better groups
 
 
 def setup_enhanced_logging(verbose: bool, output_dir: str):

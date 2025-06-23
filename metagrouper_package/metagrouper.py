@@ -37,8 +37,11 @@ except ImportError as e:
     PHASE1_AVAILABLE = False
     logging.error(f"Phase 1 not available: {e}")
 
-# Phase 2 imports
+# Phase 2 imports (from parent directory)
 try:
+    parent_path = str(Path(__file__).parent.parent)
+    if parent_path not in sys.path:
+        sys.path.insert(0, parent_path)
     from metadata_analyzer import (
         MetadataAnalyzer,
         MetadataVisualizer,
@@ -49,8 +52,9 @@ except ImportError as e:
     PHASE2_AVAILABLE = False
     logging.warning(f"Phase 2 metadata analysis not available: {e}")
 
-# Phase 3 imports
+# Phase 3 imports (from parent directory)
 try:
+    # Parent path should already be in sys.path from Phase 2 imports
     from assembly_recommender import (
         AssemblyRecommender,
         save_recommendations,
@@ -130,12 +134,12 @@ Examples:
                        choices=["megahit", "spades", "flye", "all"],
                        default=["megahit", "spades"],
                        help="Assembly tools to generate commands for (default: megahit spades)")
-    parser.add_argument("--similarity-threshold", type=float, default=0.30,
-                       help="Distance threshold for grouping samples (default: 0.30)")
+    parser.add_argument("--similarity-threshold", type=float, default=0.45,
+                       help="Distance threshold for grouping samples (default: 0.45)")
     parser.add_argument("--min-group-size", type=int, default=2,
                        help="Minimum samples per assembly group (default: 2)")
-    parser.add_argument("--max-group-size", type=int, default=10,
-                       help="Maximum samples per assembly group (default: 10)")
+    parser.add_argument("--max-group-size", type=int, default=20,
+                       help="Maximum samples per assembly group (default: 20)")
     
     # Processing arguments
     parser.add_argument("--processes", type=int,
