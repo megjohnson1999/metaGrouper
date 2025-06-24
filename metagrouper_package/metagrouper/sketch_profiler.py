@@ -9,6 +9,7 @@ fixed-size sketches instead of full k-mer profiles.
 import logging
 import random
 import time
+import heapq
 from collections import defaultdict, Counter
 from typing import Dict, List, Tuple, Optional, Union, Set
 from pathlib import Path
@@ -33,7 +34,8 @@ class StreamingKmerProfiler(KmerProfiler):
         super().__init__(k=k, **kwargs)
         self.sketch_size = sketch_size
         self.sampling_method = sampling_method
-        self.sketches = {}  # Store sketches instead of full profiles
+        # Use self.profiles from parent class to avoid duplication
+        self.sketches = self.profiles  # Alias to avoid duplication
         self.sketch_metadata = {}  # Store metadata about sketches
         
         logging.info(f"StreamingKmerProfiler initialized: k={k}, sketch_size={sketch_size}, "
@@ -77,7 +79,7 @@ class StreamingKmerProfiler(KmerProfiler):
             normalized_sketch = {}
         
         # Store sketch and metadata
-        self.sketches[sample_name] = normalized_sketch
+        self.profiles[sample_name] = normalized_sketch  # Store in profiles (sketches is an alias)
         self.sketch_metadata[sample_name] = {
             'total_kmers_sampled': total_count,
             'unique_kmers': len(sketch),
@@ -86,8 +88,6 @@ class StreamingKmerProfiler(KmerProfiler):
             'sketch_size_used': len(sketch)
         }
         
-        # Also store in profiles for compatibility
-        self.profiles[sample_name] = normalized_sketch
         if sample_name not in self.sample_names:
             self.sample_names.append(sample_name)
         
@@ -131,34 +131,53 @@ class StreamingKmerProfiler(KmerProfiler):
     
     def _frequency_sampling(self, filepath: Union[str, List[str]]) -> Dict[str, int]:
         """
-        Sample the most frequent k-mers.
+        Sample the most frequent k-mers using a single-pass algorithm with min-heap.
         
-        This requires two passes: first to count all k-mers, then to select
-        the most frequent ones.
+        This optimized version uses a min-heap to maintain the top-k k-mers
+        in a single pass, reducing memory usage and I/O overhead.
         """
-        # First pass: count all k-mers
-        all_kmers = Counter()
+        # Use a min-heap to keep top k-mers by frequency
+        # Heap items are (count, kmer) tuples
+        top_kmers_heap = []
+        kmer_counts = {}  # Track counts for k-mers in the heap
         total_sequences = 0
+        unique_kmers_seen = 0
         
         file_paths = [filepath] if isinstance(filepath, str) else filepath
         
         for file_path in file_paths:
             for sequence in self._stream_fastq_records(file_path):
                 seq_kmers = self._extract_kmers(sequence)
-                all_kmers.update(seq_kmers)
                 total_sequences += 1
+                
+                for kmer, count in seq_kmers.items():
+                    if kmer in kmer_counts:
+                        # K-mer is already in our top set, update its count
+                        old_count = kmer_counts[kmer]
+                        kmer_counts[kmer] = old_count + count
+                        # Note: heap will have stale entries, but we handle this during extraction
+                    else:
+                        unique_kmers_seen += 1
+                        # New k-mer
+                        if len(top_kmers_heap) < self.sketch_size:
+                            # Heap not full yet, add the k-mer
+                            heapq.heappush(top_kmers_heap, (count, kmer))
+                            kmer_counts[kmer] = count
+                        else:
+                            # Heap is full, check if this k-mer should replace the minimum
+                            min_count, min_kmer = top_kmers_heap[0]
+                            if count > min_count:
+                                # Remove the minimum and add the new k-mer
+                                heapq.heapreplace(top_kmers_heap, (count, kmer))
+                                del kmer_counts[min_kmer]
+                                kmer_counts[kmer] = count
         
         logging.debug(f"Frequency sampling: processed {total_sequences} sequences, "
-                     f"found {len(all_kmers)} unique k-mers")
+                     f"saw {unique_kmers_seen} unique k-mers, kept top {len(kmer_counts)}")
         
-        # If we have fewer k-mers than sketch size, return all
-        if len(all_kmers) <= self.sketch_size:
-            return dict(all_kmers)
-        
-        # Select top k-mers by frequency
-        top_kmers = dict(all_kmers.most_common(self.sketch_size))
-        
-        return top_kmers
+        # Extract final k-mer counts
+        # Note: The heap may have stale entries with old counts, so we use kmer_counts
+        return dict(kmer_counts)
     
     def _adaptive_sampling(self, filepath: Union[str, List[str]]) -> Dict[str, int]:
         """

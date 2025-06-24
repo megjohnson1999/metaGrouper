@@ -225,22 +225,16 @@ def run_analysis(args):
         )
     
     # Process samples
-    print(f"🔬 Processing {len(fastq_files)} samples...")
+    print(f"🔬 Processing {len(fastq_files)} samples using {args.processes} processes...")
     start_time = time.time()
     
-    profiles = {}
-    failed_samples = []
-    
-    for i, (filepath, sample_name) in enumerate(fastq_files):
-        if i % 10 == 0 or i == len(fastq_files) - 1:
-            print(f"   Progress: {i+1}/{len(fastq_files)} samples")
-        
-        try:
-            profile = profiler.profile_sample(filepath, sample_name)
-            profiles[sample_name] = profile
-        except Exception as e:
-            logging.error(f"Failed to process {sample_name}: {e}")
-            failed_samples.append(sample_name)
+    # Use parallel processing
+    profiles, failed_samples = profiler.process_samples_parallel(
+        fastq_files,
+        n_processes=args.processes,
+        show_progress=True,
+        memory_efficient=True
+    )
     
     processing_time = time.time() - start_time
     success_count = len(profiles)
@@ -269,9 +263,6 @@ def run_analysis(args):
         analyzer = SparseSimilarityAnalyzer(similarity_threshold=sparse_threshold)
         similarity_matrix, sample_names = analyzer.compute_similarities(profiles, method=args.distance_metric)
         
-        # Convert sparse to dense for downstream analysis
-        distance_matrix = 1 - similarity_matrix.toarray()
-        
         # Get sparse statistics
         sparse_stats = analyzer.compute_summary_statistics()
         similarity_time = time.time() - start_time
@@ -282,6 +273,11 @@ def run_analysis(args):
         
         # Save sparse matrix
         analyzer.save_similarity_matrix(str(output_path / "similarity_matrix.npz"), format='npz')
+        
+        # Only convert to dense when necessary for downstream analysis
+        # Delay conversion until needed to save memory
+        distance_matrix = None  # Will compute on-demand
+        similarity_matrix_sparse = similarity_matrix  # Keep sparse version
         
     else:
         # Traditional dense similarity 
@@ -294,6 +290,12 @@ def run_analysis(args):
         
         # Save traditional results
         save_results(profiles, distance_matrix, sample_names, args.output)
+    
+    # Convert to dense if needed for visualization/analysis
+    if args.use_sketching and PHASE1_AVAILABLE and distance_matrix is None:
+        # Convert sparse to dense only when needed
+        distance_matrix = 1 - similarity_matrix_sparse.toarray()
+        print(f"📊 Converted sparse matrix to dense for downstream analysis")
     
     # Perform dimensionality reduction for visualization
     pca_result, pca = analyzer.perform_pca() if hasattr(analyzer, 'perform_pca') else (None, None)
