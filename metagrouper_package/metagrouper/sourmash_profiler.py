@@ -223,8 +223,8 @@ class SourmashProfiler:
             signatures: Dictionary of signatures
             output_path: Output file path (.sig or .sig.gz)
         """
-        with sourmash.save_signatures(signatures.values(), output_path) as f:
-            pass
+        with open(output_path, 'w') as f:
+            sourmash.save_signatures(signatures.values(), f)
         logging.info(f"Saved {len(signatures)} signatures to {output_path}")
     
     def load_signatures(self, signature_path: str) -> Dict[str, SourmashSignature]:
