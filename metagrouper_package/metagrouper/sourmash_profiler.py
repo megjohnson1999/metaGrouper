@@ -119,39 +119,42 @@ class SourmashProfiler:
         sig = SourmashSignature(mh, name=sample_name)
         return sig
     
-    def process_samples_parallel(self, samples: Union[Dict[str, Union[str, List[str]]], List[Union[str, Tuple[str, ...]]]]) -> Dict[str, SourmashSignature]:
+    def process_samples_parallel(self, samples: Union[Dict[str, Union[str, List[str]]], List[Tuple[Union[str, List[str]], str]]]) -> Dict[str, SourmashSignature]:
         """
         Process multiple samples in parallel.
         
         Args:
-            samples: Dictionary mapping sample names to file paths, or MetaGrouper format dict
+            samples: Dictionary mapping sample names to file paths, or MetaGrouper format list
+                    MetaGrouper format: List[Tuple[Union[str, List[str]], str]]
+                    Where each tuple is (filepath_or_list, sample_name)
             
         Returns:
             Dictionary mapping sample names to signatures
         """
         signatures = {}
         
-        # Handle MetaGrouper format (dict with sample names as keys, file paths as values)
-        # vs list format that needs to be converted to dict
+        # Handle MetaGrouper format vs dict format
         if isinstance(samples, dict):
             sample_dict = samples
         else:
-            # Convert list to dict using basename as sample name
+            # Convert MetaGrouper list format to dict
             sample_dict = {}
             for item in samples:
-                # Handle both single files (str) and paired-end files (tuple/list)
-                if isinstance(item, (tuple, list)):
-                    # Paired-end files - use first file for sample name
-                    filepath = item
-                    sample_name = Path(item[0]).stem
-                    # Remove common suffixes like _1, _R1, etc.
-                    sample_name = sample_name.replace('_1', '').replace('_R1', '').replace('_r1', '')
+                # MetaGrouper format: each item is (filepath_or_list, sample_name)
+                if isinstance(item, (tuple, list)) and len(item) == 2:
+                    filepath, sample_name = item
+                    sample_dict[sample_name] = filepath
                 else:
-                    # Single file
-                    filepath = item
-                    sample_name = Path(item).stem
-                
-                sample_dict[sample_name] = filepath
+                    # Fallback for unexpected format
+                    logging.warning(f"Unexpected sample format: {item}")
+                    if isinstance(item, str):
+                        # Single file path without sample name
+                        filepath = item
+                        sample_name = Path(item).stem
+                        sample_dict[sample_name] = filepath
+                    else:
+                        logging.error(f"Cannot process sample: {item}")
+                        continue
         
         if self.processes == 1:
             # Single process
