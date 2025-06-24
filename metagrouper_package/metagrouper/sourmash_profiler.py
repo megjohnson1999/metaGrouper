@@ -119,21 +119,32 @@ class SourmashProfiler:
         sig = SourmashSignature(mh, name=sample_name)
         return sig
     
-    def process_samples_parallel(self, samples: Dict[str, Union[str, List[str]]]) -> Dict[str, SourmashSignature]:
+    def process_samples_parallel(self, samples: Union[Dict[str, Union[str, List[str]]], List[str]]) -> Dict[str, SourmashSignature]:
         """
         Process multiple samples in parallel.
         
         Args:
-            samples: Dictionary mapping sample names to file paths
+            samples: Dictionary mapping sample names to file paths, or MetaGrouper format dict
             
         Returns:
             Dictionary mapping sample names to signatures
         """
         signatures = {}
         
+        # Handle MetaGrouper format (dict with sample names as keys, file paths as values)
+        # vs list format that needs to be converted to dict
+        if isinstance(samples, dict):
+            sample_dict = samples
+        else:
+            # Convert list to dict using basename as sample name
+            sample_dict = {}
+            for filepath in samples:
+                sample_name = Path(filepath).stem
+                sample_dict[sample_name] = filepath
+        
         if self.processes == 1:
             # Single process
-            for sample_name, filepath in samples.items():
+            for sample_name, filepath in sample_dict.items():
                 logging.info(f"Processing {sample_name}")
                 try:
                     sig = self.sketch_sample(filepath, sample_name)
@@ -145,7 +156,7 @@ class SourmashProfiler:
             with ProcessPoolExecutor(max_workers=self.processes) as executor:
                 future_to_sample = {
                     executor.submit(self.sketch_sample, filepath, sample_name): sample_name
-                    for sample_name, filepath in samples.items()
+                    for sample_name, filepath in sample_dict.items()
                 }
                 
                 for future in as_completed(future_to_sample):
