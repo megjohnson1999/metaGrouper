@@ -119,7 +119,7 @@ class SourmashProfiler:
         sig = SourmashSignature(mh, name=sample_name)
         return sig
     
-    def process_samples_parallel(self, samples: Union[Dict[str, Union[str, List[str]]], List[str]]) -> Dict[str, SourmashSignature]:
+    def process_samples_parallel(self, samples: Union[Dict[str, Union[str, List[str]]], List[Union[str, Tuple[str, ...]]]]) -> Dict[str, SourmashSignature]:
         """
         Process multiple samples in parallel.
         
@@ -138,8 +138,19 @@ class SourmashProfiler:
         else:
             # Convert list to dict using basename as sample name
             sample_dict = {}
-            for filepath in samples:
-                sample_name = Path(filepath).stem
+            for item in samples:
+                # Handle both single files (str) and paired-end files (tuple/list)
+                if isinstance(item, (tuple, list)):
+                    # Paired-end files - use first file for sample name
+                    filepath = item
+                    sample_name = Path(item[0]).stem
+                    # Remove common suffixes like _1, _R1, etc.
+                    sample_name = sample_name.replace('_1', '').replace('_R1', '').replace('_r1', '')
+                else:
+                    # Single file
+                    filepath = item
+                    sample_name = Path(item).stem
+                
                 sample_dict[sample_name] = filepath
         
         if self.processes == 1:
