@@ -19,6 +19,10 @@ plotly>=5.0.0,<6.0.0
 kaleido>=0.2.1,<1.0.0
 umap-learn>=0.5.0,<1.0.0
 
+# MinHash sketching for fast k-mer analysis
+sourmash>=4.8.0
+screed>=1.0.5
+
 # Development dependencies (install with: pip install -e ".[dev]")
 # pytest>=7.0.0
 # pytest-cov>=4.0.0

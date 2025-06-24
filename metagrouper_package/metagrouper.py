@@ -37,6 +37,15 @@ except ImportError as e:
     PHASE1_AVAILABLE = False
     logging.error(f"Phase 1 not available: {e}")
 
+# Sourmash imports
+try:
+    from metagrouper.sourmash_profiler import SourmashProfiler
+    import sourmash
+    SOURMASH_AVAILABLE = True
+except ImportError as e:
+    SOURMASH_AVAILABLE = False
+    logging.error(f"Sourmash not available: {e}")
+
 # Phase 2 imports (from parent directory)
 try:
     parent_path = str(Path(__file__).parent.parent)
@@ -117,6 +126,18 @@ Examples:
                        help="K-mer sketch size (default: 1000)")
     parser.add_argument("--sampling-method", choices=["reservoir", "frequency", "adaptive"],
                        default="frequency", help="Sketching method (default: frequency)")
+    
+    # Sourmash arguments
+    parser.add_argument("--use-sourmash", action="store_true",
+                       help="Use sourmash for fast MinHash sketching (recommended for large datasets)")
+    parser.add_argument("--sourmash-scaled", type=int, default=1000,
+                       help="Sourmash scaled parameter (1 in N hashes kept, default: 1000)")
+    parser.add_argument("--sourmash-num-hashes", type=int, default=0,
+                       help="Sourmash num hashes (0 for scaled, default: 0)")
+    parser.add_argument("--sourmash-track-abundance", action="store_true",
+                       help="Track k-mer abundances in sourmash")
+    parser.add_argument("--sourmash-save-sigs", action="store_true",
+                       help="Save sourmash signatures for future use")
     
     # Metadata Analysis (Phase 2)
     parser.add_argument("-m", "--metadata", help="Metadata file (CSV/TSV) for Phase 2 analysis")
@@ -206,7 +227,20 @@ def run_analysis(args):
     print("-" * 60)
     
     # Choose profiler based on options
-    if args.use_sketching and PHASE1_AVAILABLE:
+    if args.use_sourmash and SOURMASH_AVAILABLE:
+        print(f"⚡ Using sourmash for fast MinHash sketching")
+        print(f"   K-mer size: {args.kmer_size}")
+        print(f"   Scaled: {args.sourmash_scaled}")
+        print(f"   Track abundance: {args.sourmash_track_abundance}")
+        
+        profiler = SourmashProfiler(
+            k=args.kmer_size,
+            scaled=args.sourmash_scaled,
+            num_hashes=args.sourmash_num_hashes,
+            processes=args.processes if args.processes else 1,
+            track_abundance=args.sourmash_track_abundance
+        )
+    elif args.use_sketching and PHASE1_AVAILABLE:
         print(f"🚀 Using optimized sketching approach")
         print(f"   Sketch size: {args.sketch_size}")
         print(f"   Sampling method: {args.sampling_method}")
@@ -228,13 +262,30 @@ def run_analysis(args):
     print(f"🔬 Processing {len(fastq_files)} samples using {args.processes} processes...")
     start_time = time.time()
     
-    # Use parallel processing
-    profiles, failed_samples = profiler.process_samples_parallel(
-        fastq_files,
-        n_processes=args.processes,
-        show_progress=True,
-        memory_efficient=True
-    )
+    if args.use_sourmash and SOURMASH_AVAILABLE:
+        # Use sourmash profiler
+        signatures = profiler.process_samples_parallel(fastq_files)
+        profiles, sample_names = profiler.export_to_metagrouper_format(
+            signatures, 
+            np.zeros((len(signatures), len(signatures)))  # Placeholder
+        )
+        failed_samples = []
+        
+        # Save signatures if requested
+        if args.sourmash_save_sigs:
+            sig_path = output_path / "signatures.sig"
+            profiler.save_signatures(signatures, str(sig_path))
+            print(f"💾 Saved signatures to {sig_path}")
+            
+    else:
+        # Use traditional profiling
+        profiles, failed_samples = profiler.process_samples_parallel(
+            fastq_files,
+            n_processes=args.processes,
+            show_progress=True,
+            memory_efficient=True
+        )
+        sample_names = list(profiles.keys())
     
     processing_time = time.time() - start_time
     success_count = len(profiles)
@@ -247,17 +298,30 @@ def run_analysis(args):
         logging.error("No samples processed successfully")
         return False
     
-    # Memory usage report for sketching
+    # Memory usage report for sketching  
     if isinstance(profiler, StreamingKmerProfiler):
         memory_info = profiler.estimate_memory_usage()
         print(f"💾 Memory usage: {memory_info['sketch_memory_mb']:.1f} MB")
         print(f"💾 Memory reduction: {memory_info['memory_reduction']:.1f}x vs full profiles")
+    elif isinstance(profiler, SourmashProfiler):
+        print(f"💾 Using sourmash MinHash sketches for efficient memory usage")
     
     # Compute similarity/distance matrix
     print(f"\n🔗 Computing similarity matrix...")
     start_time = time.time()
     
-    if args.use_sketching and PHASE1_AVAILABLE:
+    if args.use_sourmash and SOURMASH_AVAILABLE:
+        # Use sourmash for fast similarity computation
+        similarity_matrix = profiler.compute_similarity_matrix(signatures)
+        distance_matrix = 1 - similarity_matrix
+        
+        similarity_time = time.time() - start_time
+        print(f"✅ Sourmash similarity computed in {similarity_time:.1f}s")
+        
+        # Save results
+        save_results(profiles, distance_matrix, sample_names, args.output)
+        
+    elif args.use_sketching and PHASE1_AVAILABLE:
         # Use sparse similarity analysis
         sparse_threshold = getattr(args, 'sparse_threshold', 0.1)  # Default sparse threshold
         analyzer = SparseSimilarityAnalyzer(similarity_threshold=sparse_threshold)
@@ -283,7 +347,6 @@ def run_analysis(args):
         # Traditional dense similarity 
         analyzer = SimilarityAnalyzer(profiles)
         distance_matrix = analyzer.compute_distance_matrix(metric=args.distance_metric)
-        sample_names = list(profiles.keys())
         
         similarity_time = time.time() - start_time
         print(f"✅ Dense similarity computed in {similarity_time:.1f}s")
