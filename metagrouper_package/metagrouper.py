@@ -361,7 +361,14 @@ def run_analysis(args):
         print(f"📊 Converted sparse matrix to dense for downstream analysis")
     
     # Perform dimensionality reduction for visualization
-    pca_result, pca = analyzer.perform_pca() if hasattr(analyzer, 'perform_pca') else (None, None)
+    pca_result, pca = None, None
+    if args.use_sourmash and SOURMASH_AVAILABLE:
+        # For sourmash, we don't have an analyzer object, so skip built-in PCA
+        pass
+    elif hasattr(analyzer, 'perform_pca'):
+        pca_result, pca = analyzer.perform_pca()
+    
+    # Fallback PCA for sourmash and other cases
     if pca_result is None:
         # Fallback PCA using sklearn
         try:
