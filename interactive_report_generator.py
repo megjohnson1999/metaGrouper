@@ -1081,17 +1081,27 @@ class InteractiveReportGenerator:
         # Add metadata if available
         metadata_cols = []
         if self.report_data.get('metadata') is not None:
+            logging.info(f"Found metadata with {len(self.report_data['metadata'])} rows and columns: {list(self.report_data['metadata'].columns)}")
             metadata_for_merge = self.report_data['metadata'].reset_index()
             if 'sample_id' not in metadata_for_merge.columns:
                 metadata_for_merge['sample_id'] = metadata_for_merge.index
+            
+            logging.info(f"Sample names for merging: {sample_names[:3]}...")
+            logging.info(f"Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
+            
             plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
+            logging.info(f"After merge, plot_df columns: {list(plot_df.columns)}")
             
             # Get metadata columns for coloring options
             for col in plot_df.columns:
                 if col not in ['sample_id'] and not col.endswith(('_x', '_y')):
                     n_unique = plot_df[col].nunique()
-                    if n_unique > 1 and n_unique <= 20:
+                    non_null = plot_df[col].notna().sum()
+                    logging.info(f"Column {col}: {n_unique} unique values, {non_null} non-null values")
+                    if n_unique > 1 and n_unique <= 20 and non_null > 0:
                         metadata_cols.append(col)
+            
+            logging.info(f"Selected metadata columns for coloring: {metadata_cols}")
         
         # Create figure with traces for each method
         fig = go.Figure()
@@ -1119,10 +1129,13 @@ class InteractiveReportGenerator:
                 hover_info += f"{y_label}: {projection[idx, 1]:.3f}"
                 
                 # Add metadata to hover
-                for col in metadata_cols:
-                    if col in plot_df.columns:
-                        val = plot_df.iloc[idx][col]
-                        hover_info += f"<br>{col.replace('_', ' ').title()}: {val}"
+                if len(metadata_cols) > 0:
+                    hover_info += "<br>--- Metadata ---"
+                    for col in metadata_cols:
+                        if col in plot_df.columns:
+                            val = plot_df.iloc[idx][col]
+                            if pd.notna(val):  # Only show non-null values
+                                hover_info += f"<br>{col.replace('_', ' ').title()}: {val}"
                 
                 hover_text.append(hover_info)
             
@@ -1240,6 +1253,7 @@ class InteractiveReportGenerator:
         
         # Color selector (if metadata available)
         if color_buttons:
+            logging.info(f"Creating color dropdown with {len(color_buttons)} options")
             updatemenus.append(
                 dict(
                     buttons=color_buttons,
@@ -1260,6 +1274,8 @@ class InteractiveReportGenerator:
                     showarrow=False
                 )
             )
+        else:
+            logging.warning("No color buttons created - no suitable metadata columns found")
         
         # Set initial axis labels
         initial_model = method_models[default_method]
