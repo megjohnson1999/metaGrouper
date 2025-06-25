@@ -579,6 +579,13 @@ class InteractiveReportGenerator:
                     metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
                     
                     pca_df = pca_df.merge(metadata_for_merge, on='sample_id', how='left')
+                    
+                    # Check matching for fallback case too
+                    metadata_cols_for_checking = [col for col in pca_df.columns if col not in ['sample_id', 'MDS1', 'MDS2']]
+                    if metadata_cols_for_checking:
+                        first_metadata_col = metadata_cols_for_checking[0]
+                        successful_matches = pca_df[first_metadata_col].notna().sum()
+                        print(f"🔍 Fallback MDS merge results: {successful_matches}/{len(pca_df)} samples matched")
                 
                 # Get metadata columns for coloring options
                 metadata_cols = []
@@ -586,7 +593,8 @@ class InteractiveReportGenerator:
                     for col in pca_df.columns:
                         if col not in ['sample_id', 'MDS1', 'MDS2']:
                             n_unique = pca_df[col].nunique()
-                            if n_unique > 1 and n_unique <= 20:
+                            non_null = pca_df[col].notna().sum()
+                            if n_unique > 1 and n_unique <= 20 and non_null > 0:
                                 metadata_cols.append(col)
                 
                 # Create base plot with first metadata variable as default color
@@ -1071,6 +1079,50 @@ class InteractiveReportGenerator:
 </html>
         '''
     
+    def _try_match_sample_names(self, fastq_names, metadata_ids):
+        """Try to create a mapping between FASTQ names and metadata IDs using common transformations."""
+        from pathlib import Path
+        print(f"🔧 Attempting smart name matching...")
+        
+        # Try different transformations
+        transformations = {
+            'exact': lambda x: x,
+            'remove_suffix': lambda x: x.split('_')[0].split('.')[0],  # SRR123_1.fastq -> SRR123
+            'extract_srr': lambda x: x if x.startswith('SRR') else ('SRR' + x if x.isdigit() else x),  # 123 -> SRR123
+            'remove_srr_prefix': lambda x: x[3:] if x.startswith('SRR') else x,  # SRR123 -> 123
+            'basename_only': lambda x: Path(x).stem.split('_')[0]  # /path/to/SRR123_1.fastq.gz -> SRR123
+        }
+        
+        best_matches = 0
+        best_transform = None
+        best_mapping = {}
+        
+        fastq_set = set(fastq_names)
+        metadata_set = set(metadata_ids)
+        
+        for transform_name, transform_func in transformations.items():
+            try:
+                # Transform FASTQ names and see how many match metadata IDs
+                transformed_fastq = {orig: transform_func(orig) for orig in fastq_names}
+                matches = sum(1 for transformed in transformed_fastq.values() if transformed in metadata_set)
+                
+                print(f"   {transform_name}: {matches}/{len(fastq_names)} matches")
+                
+                if matches > best_matches:
+                    best_matches = matches
+                    best_transform = transform_name
+                    best_mapping = transformed_fastq
+                    
+            except Exception as e:
+                print(f"   {transform_name}: failed ({e})")
+        
+        if best_matches > 0:
+            print(f"✅ Best transformation: '{best_transform}' with {best_matches} matches")
+            return best_mapping, best_transform
+        else:
+            print(f"❌ No transformations yielded matches")
+            return {}, None
+
     def _create_enhanced_kmer_plot(self, kmer_matrix, sample_names, pca, pca_result):
         """Create enhanced plot with method switching and metadata coloring."""
         import plotly.graph_objects as go
@@ -1137,6 +1189,48 @@ class InteractiveReportGenerator:
             
             plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
             print(f"✅ After merge, plot_df columns: {list(plot_df.columns)}")
+            
+            # Check how many samples actually matched
+            metadata_cols_for_checking = [col for col in plot_df.columns if col not in ['sample_id'] and not col.endswith(('_x', '_y'))]
+            if metadata_cols_for_checking:
+                first_metadata_col = metadata_cols_for_checking[0]
+                successful_matches = plot_df[first_metadata_col].notna().sum()
+                print(f"🔍 Merge results: {successful_matches}/{len(plot_df)} samples successfully matched")
+                
+                if successful_matches == 0:
+                    print(f"❌ NO SAMPLES MATCHED! Checking name format differences...")
+                    print(f"📋 FASTQ sample names: {plot_df['sample_id'].tolist()[:5]}")
+                    print(f"📋 Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:5]}")
+                    
+                    # Try smart name matching
+                    name_mapping, best_transform = self._try_match_sample_names(
+                        plot_df['sample_id'].tolist(),
+                        metadata_for_merge['sample_id'].tolist()
+                    )
+                    
+                    if name_mapping and best_transform:
+                        print(f"🔧 Applying '{best_transform}' transformation and re-merging...")
+                        # Apply the best transformation
+                        plot_df['sample_id_transformed'] = plot_df['sample_id'].map(name_mapping)
+                        plot_df = plot_df.drop('sample_id', axis=1).rename(columns={'sample_id_transformed': 'sample_id'})
+                        
+                        # Re-merge with transformed names
+                        plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
+                        
+                        # Check success
+                        new_matches = plot_df[first_metadata_col].notna().sum()
+                        print(f"✅ After transformation: {new_matches}/{len(plot_df)} samples matched!")
+                    else:
+                        print(f"❌ Smart matching failed - no suitable transformations found")
+                        print(f"🔍 Name format analysis:")
+                        fastq_names = set(plot_df['sample_id'].tolist())
+                        metadata_ids = set(metadata_for_merge['sample_id'].tolist())
+                        print(f"   FASTQ names example: {list(fastq_names)[:3]}")
+                        print(f"   Metadata IDs example: {list(metadata_ids)[:3]}")
+                else:
+                    print(f"✅ {successful_matches} samples matched successfully")
+                    print(f"📋 Sample with metadata: {plot_df[plot_df[first_metadata_col].notna()]['sample_id'].tolist()[:3]}")
+            
             logging.info(f"After merge, plot_df columns: {list(plot_df.columns)}")
             
             # Get metadata columns for coloring options
