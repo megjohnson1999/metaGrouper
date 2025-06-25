@@ -12,6 +12,7 @@ import sys
 import argparse
 import logging
 import time
+import multiprocessing
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -99,6 +100,19 @@ def log_memory_usage(stage_name, start_memory=None):
         else:
             print(f"💾 {stage_name}: {current_memory:.1f} MB")
     return current_memory
+
+
+def get_process_count(args):
+    """Get the number of processes to use, defaulting to CPU count if not specified."""
+    if args.processes is not None:
+        return args.processes
+    elif args.sequential:
+        return 1
+    else:
+        # Auto-detect CPU count
+        cpu_count = multiprocessing.cpu_count()
+        print(f"🔧 Auto-detected {cpu_count} CPU cores, using all cores for processing")
+        return cpu_count
 
 
 def get_dense_distance_matrix(distance_matrix, sparse_similarity_matrix):
@@ -304,6 +318,9 @@ def run_analysis(args):
     output_path = Path(args.output)
     output_path.mkdir(parents=True, exist_ok=True)
     
+    # Get process count (auto-detect if not specified)
+    process_count = get_process_count(args)
+    
     # Determine which phases to run
     run_phase2 = args.metadata and PHASE2_AVAILABLE
     run_phase3 = PHASE3_AVAILABLE  # Phase 3 can run without metadata
@@ -312,6 +329,7 @@ def run_analysis(args):
     print(f"   Phase 1: K-mer profiling and similarity ✅")
     print(f"   Phase 2: Metadata analysis {'✅' if run_phase2 else '❌ (no metadata provided)' if not args.metadata else '❌ (dependencies missing)'}")
     print(f"   Phase 3: Assembly recommendations {'✅' if run_phase3 else '❌ (dependencies missing)'}")
+    print(f"   Processing: {process_count} CPU cores")
     print()
     
     # =============================================================================
@@ -331,7 +349,7 @@ def run_analysis(args):
             k=args.kmer_size,
             scaled=args.sourmash_scaled,
             num_hashes=args.sourmash_num_hashes,
-            processes=args.processes if args.processes else 1,
+            processes=process_count,
             track_abundance=args.sourmash_track_abundance
         )
     elif PHASE1_AVAILABLE:
@@ -357,7 +375,7 @@ def run_analysis(args):
         )
     
     # Process samples
-    print(f"🔬 Processing {len(fastq_files)} samples using {args.processes} processes...")
+    print(f"🔬 Processing {len(fastq_files)} samples using {process_count} processes...")
     start_time = time.time()
     
     if args.use_sourmash and SOURMASH_AVAILABLE:
@@ -379,7 +397,7 @@ def run_analysis(args):
         # Use traditional profiling
         profiles, failed_samples = profiler.process_samples_parallel(
             fastq_files,
-            n_processes=args.processes,
+            n_processes=process_count,
             show_progress=True,
             memory_efficient=True
         )
