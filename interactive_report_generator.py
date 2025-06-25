@@ -573,6 +573,11 @@ class InteractiveReportGenerator:
                     metadata_for_merge = self.report_data['metadata'].reset_index()
                     if 'sample_id' not in metadata_for_merge.columns:
                         metadata_for_merge['sample_id'] = metadata_for_merge.index
+                    
+                    # Fix data type mismatch by converting both to strings
+                    pca_df['sample_id'] = pca_df['sample_id'].astype(str)
+                    metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
+                    
                     pca_df = pca_df.merge(metadata_for_merge, on='sample_id', how='left')
                 
                 # Get metadata columns for coloring options
@@ -1119,6 +1124,14 @@ class InteractiveReportGenerator:
             
             print(f"🔗 Sample names for merging: {sample_names[:3]}...")
             print(f"🔗 Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
+            print(f"📊 Sample names type: {type(sample_names[0]) if sample_names else 'None'}")
+            print(f"📊 Metadata sample_id type: {metadata_for_merge['sample_id'].dtype}")
+            
+            # Fix data type mismatch by converting both to strings
+            plot_df['sample_id'] = plot_df['sample_id'].astype(str)
+            metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
+            
+            print(f"✅ Converted both to strings for merging")
             logging.info(f"Sample names for merging: {sample_names[:3]}...")
             logging.info(f"Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
             
