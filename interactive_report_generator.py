@@ -526,17 +526,75 @@ class InteractiveReportGenerator:
                             metadata_for_merge['sample_id'] = metadata_for_merge.index
                         pca_df = pca_df.merge(metadata_for_merge, on='sample_id', how='left')
                     
+                    # Get metadata columns for coloring options
+                    metadata_cols = []
+                    if self.report_data.get('metadata') is not None:
+                        for col in pca_df.columns:
+                            if col not in ['sample_id', 'PC1', 'PC2']:
+                                n_unique = pca_df[col].nunique()
+                                if n_unique > 1 and n_unique <= 20:
+                                    metadata_cols.append(col)
+                    
+                    # Create base plot with first metadata variable as default color
+                    color_col = metadata_cols[0] if metadata_cols else None
+                    hover_cols = ['sample_id'] + metadata_cols if metadata_cols else ['sample_id']
+                    
                     fig = px.scatter(
                         pca_df, 
                         x='PC1', 
                         y='PC2',
-                        hover_data=['sample_id'],
+                        color=color_col,
+                        hover_data=hover_cols,
                         title="Interactive K-mer PCA Analysis",
                         labels={
                             'PC1': f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)',
                             'PC2': f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)'
                         }
                     )
+                    
+                    # Add color selection dropdown if metadata available
+                    if metadata_cols:
+                        buttons = []
+                        for col in metadata_cols:
+                            buttons.append(
+                                dict(
+                                    label=col.replace('_', ' ').title(),
+                                    method="restyle",
+                                    args=[{"marker.color": pca_df[col]}]
+                                )
+                            )
+                        
+                        # Add no coloring option
+                        buttons.append(
+                            dict(
+                                label="No Coloring",
+                                method="restyle", 
+                                args=[{"marker.color": "blue"}]
+                            )
+                        )
+                        
+                        fig.update_layout(
+                            updatemenus=[
+                                dict(
+                                    buttons=buttons,
+                                    direction="down",
+                                    showactive=True,
+                                    x=0.1,
+                                    y=1.15,
+                                    xanchor="left",
+                                    yanchor="top"
+                                )
+                            ],
+                            annotations=[
+                                dict(
+                                    text="Color by:",
+                                    x=0.05, y=1.18,
+                                    xref="paper", yref="paper",
+                                    align="left",
+                                    showarrow=False
+                                )
+                            ]
+                        )
                     
                     fig.update_traces(marker=dict(size=10, opacity=0.8))
                     fig.update_layout(height=500, template='plotly_white')
