@@ -510,47 +510,71 @@ class InteractiveReportGenerator:
                     pca = PCA(n_components=2)
                     pca_result = pca.fit_transform(kmer_matrix)
                     
-                    # Create enhanced dimensionality plot
-                    pca_html = visualizer.create_enhanced_dimensionality_plot(
-                        kmer_matrix,
-                        str(self.output_dir / "temp_pca.html"),
-                        "Interactive K-mer Analysis"
+                    # Create simple PCA plot using direct plotly
+                    import plotly.express as px
+                    
+                    pca_df = pd.DataFrame({
+                        'PC1': pca_result[:, 0],
+                        'PC2': pca_result[:, 1],
+                        'sample_id': sample_names
+                    })
+                    
+                    # Add metadata if available
+                    if self.report_data.get('metadata') is not None:
+                        metadata_for_merge = self.report_data['metadata'].reset_index()
+                        if 'sample_id' not in metadata_for_merge.columns:
+                            metadata_for_merge['sample_id'] = metadata_for_merge.index
+                        pca_df = pca_df.merge(metadata_for_merge, on='sample_id', how='left')
+                    
+                    fig = px.scatter(
+                        pca_df, 
+                        x='PC1', 
+                        y='PC2',
+                        hover_data=['sample_id'],
+                        title="Interactive K-mer PCA Analysis",
+                        labels={
+                            'PC1': f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)',
+                            'PC2': f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)'
+                        }
                     )
                     
-                    # Read the HTML content
-                    with open(self.output_dir / "temp_pca.html", 'r') as f:
-                        pca_html = f.read()
+                    fig.update_traces(marker=dict(size=10, opacity=0.8))
+                    fig.update_layout(height=500, template='plotly_white')
                     
-                    # Extract just the plot div
-                    start = pca_html.find('<div id="')
-                    end = pca_html.find('</script>') + 9
-                    if start != -1 and end != -1:
-                        pca_html = pca_html[start:end]
+                    # Convert to HTML div without full page structure
+                    pca_html = fig.to_html(include_plotlyjs='cdn', div_id="pca-plot", config={'displayModeBar': True})
                     
             except Exception as e:
                 logging.warning(f"Could not create PCA plot: {e}")
                 pca_html = "<p>PCA visualization not available</p>"
         
-        # Create distance heatmap
-        heatmap_html = visualizer.create_interactive_heatmap(
-            self.report_data['distance_matrix'],
-            str(self.output_dir / "temp_heatmap.html"),
-            "Sample Distance Matrix"
-        )
-        
-        # Read and extract heatmap HTML
+        # Create distance heatmap using direct plotly
         try:
-            with open(self.output_dir / "temp_heatmap.html", 'r') as f:
-                heatmap_content = f.read()
+            import plotly.graph_objects as go
             
-            # Extract just the plot div
-            start = heatmap_content.find('<div id="')
-            end = heatmap_content.find('</script>') + 9
-            if start != -1 and end != -1:
-                heatmap_html = heatmap_content[start:end]
-                
+            fig = go.Figure(data=go.Heatmap(
+                z=self.report_data['distance_matrix'],
+                x=self.report_data['sample_names'],
+                y=self.report_data['sample_names'],
+                colorscale='Viridis',
+                hoverongaps=False,
+                hovertemplate='Sample 1: %{y}<br>Sample 2: %{x}<br>Distance: %{z:.3f}<extra></extra>'
+            ))
+            
+            fig.update_layout(
+                title="Sample Distance Matrix",
+                xaxis_title="Samples",
+                yaxis_title="Samples", 
+                height=600,
+                width=700,
+                template='plotly_white'
+            )
+            
+            # Convert to HTML div without full page structure
+            heatmap_html = fig.to_html(include_plotlyjs='cdn', div_id="heatmap-plot", config={'displayModeBar': True})
+            
         except Exception as e:
-            logging.warning(f"Could not extract heatmap HTML: {e}")
+            logging.warning(f"Could not create heatmap: {e}")
             heatmap_html = "<p>Heatmap visualization not available</p>"
         
         # Combine visualizations
