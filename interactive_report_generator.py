@@ -489,9 +489,11 @@ class InteractiveReportGenerator:
         if 'kmer_data' in self.report_data and self.report_data['kmer_data']:
             try:
                 from sklearn.decomposition import PCA
+                logging.info(f"Found k-mer data, generating PCA plot...")
                 
                 # Extract k-mer profiles for PCA
                 profiles = self.report_data['kmer_data'].get('profiles', {})
+                logging.info(f"K-mer profiles: {len(profiles)} samples found")
                 if profiles:
                     # Convert to matrix
                     sample_names = list(profiles.keys())
@@ -605,15 +607,137 @@ class InteractiveReportGenerator:
             except Exception as e:
                 logging.warning(f"Could not create PCA plot: {e}")
                 pca_html = "<p>PCA visualization not available</p>"
+        else:
+            # Fallback: Use distance matrix for PCA-like visualization
+            try:
+                from sklearn.decomposition import PCA
+                from sklearn.manifold import MDS
+                logging.info("No k-mer data available, using distance matrix for MDS visualization...")
+                
+                # Use MDS (multidimensional scaling) on distance matrix
+                mds = MDS(n_components=2, dissimilarity='precomputed', random_state=42)
+                mds_result = mds.fit_transform(self.report_data['distance_matrix'])
+                
+                import plotly.express as px
+                
+                pca_df = pd.DataFrame({
+                    'MDS1': mds_result[:, 0],
+                    'MDS2': mds_result[:, 1],
+                    'sample_id': self.report_data['sample_names']
+                })
+                
+                # Add metadata if available
+                if self.report_data.get('metadata') is not None:
+                    metadata_for_merge = self.report_data['metadata'].reset_index()
+                    if 'sample_id' not in metadata_for_merge.columns:
+                        metadata_for_merge['sample_id'] = metadata_for_merge.index
+                    pca_df = pca_df.merge(metadata_for_merge, on='sample_id', how='left')
+                
+                # Get metadata columns for coloring options
+                metadata_cols = []
+                if self.report_data.get('metadata') is not None:
+                    for col in pca_df.columns:
+                        if col not in ['sample_id', 'MDS1', 'MDS2']:
+                            n_unique = pca_df[col].nunique()
+                            if n_unique > 1 and n_unique <= 20:
+                                metadata_cols.append(col)
+                
+                # Create base plot with first metadata variable as default color
+                color_col = metadata_cols[0] if metadata_cols else None
+                hover_cols = ['sample_id'] + metadata_cols if metadata_cols else ['sample_id']
+                
+                fig = px.scatter(
+                    pca_df, 
+                    x='MDS1', 
+                    y='MDS2',
+                    color=color_col,
+                    hover_data=hover_cols,
+                    title="Multi-Dimensional Scaling (Distance-based)",
+                    labels={
+                        'MDS1': 'MDS Dimension 1',
+                        'MDS2': 'MDS Dimension 2'
+                    }
+                )
+                
+                # Add color selection dropdown if metadata available
+                if metadata_cols:
+                    buttons = []
+                    for col in metadata_cols:
+                        buttons.append(
+                            dict(
+                                label=col.replace('_', ' ').title(),
+                                method="restyle",
+                                args=[{"marker.color": pca_df[col]}]
+                            )
+                        )
+                    
+                    # Add no coloring option
+                    buttons.append(
+                        dict(
+                            label="No Coloring",
+                            method="restyle", 
+                            args=[{"marker.color": "blue"}]
+                        )
+                    )
+                    
+                    fig.update_layout(
+                        updatemenus=[
+                            dict(
+                                buttons=buttons,
+                                direction="down",
+                                showactive=True,
+                                x=0.1,
+                                y=1.15,
+                                xanchor="left",
+                                yanchor="top"
+                            )
+                        ],
+                        annotations=[
+                            dict(
+                                text="Color by:",
+                                x=0.05, y=1.18,
+                                xref="paper", yref="paper",
+                                align="left",
+                                showarrow=False
+                            )
+                        ]
+                    )
+                
+                fig.update_traces(marker=dict(size=10, opacity=0.8))
+                fig.update_layout(height=500, template='plotly_white')
+                
+                # Convert to HTML div without full page structure
+                pca_html = fig.to_html(include_plotlyjs='cdn', div_id="mds-plot", config={'displayModeBar': True})
+                
+            except Exception as e:
+                logging.warning(f"Could not create MDS plot: {e}")
+                pca_html = "<p>No visualization data available</p>"
         
         # Create distance heatmap using direct plotly
         try:
             import plotly.graph_objects as go
             
+            # Get sample names and calculate appropriate sizing
+            sample_names = self.report_data['sample_names']
+            n_samples = len(sample_names)
+            
+            # Truncate long sample names for display
+            display_names = []
+            for name in sample_names:
+                if len(name) > 20:
+                    display_names.append(name[:17] + "...")
+                else:
+                    display_names.append(name)
+            
+            # Calculate dynamic sizing based on number of samples
+            base_size = max(600, n_samples * 25)  # Minimum 600px, scale with samples
+            max_size = 1200  # Cap at reasonable size
+            plot_size = min(base_size, max_size)
+            
             fig = go.Figure(data=go.Heatmap(
                 z=self.report_data['distance_matrix'],
-                x=self.report_data['sample_names'],
-                y=self.report_data['sample_names'],
+                x=display_names,
+                y=display_names,
                 colorscale='Viridis',
                 hoverongaps=False,
                 hovertemplate='Sample 1: %{y}<br>Sample 2: %{x}<br>Distance: %{z:.3f}<extra></extra>'
@@ -623,10 +747,20 @@ class InteractiveReportGenerator:
                 title="Sample Distance Matrix",
                 xaxis_title="Samples",
                 yaxis_title="Samples", 
-                height=600,
-                width=700,
-                template='plotly_white'
+                height=plot_size,
+                width=plot_size,
+                template='plotly_white',
+                xaxis=dict(tickangle=45, tickfont=dict(size=10)),
+                yaxis=dict(tickfont=dict(size=10)),
+                margin=dict(l=100, r=50, t=100, b=100)  # Add margins for rotated labels
             )
+            
+            # Adjust for very large datasets
+            if n_samples > 20:
+                fig.update_layout(
+                    xaxis=dict(tickangle=90, tickfont=dict(size=8)),
+                    yaxis=dict(tickfont=dict(size=8))
+                )
             
             # Convert to HTML div without full page structure
             heatmap_html = fig.to_html(include_plotlyjs='cdn', div_id="heatmap-plot", config={'displayModeBar': True})

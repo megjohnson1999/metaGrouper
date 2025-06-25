@@ -695,8 +695,8 @@ def run_analysis(args):
             
             # Collect all data for the report
             kmer_data_dict = None
-            if 'kmer_profiles' in locals():
-                kmer_data_dict = {'profiles': kmer_profiles}
+            if 'profiles' in locals() and profiles:
+                kmer_data_dict = {'profiles': profiles}
             
             # Generate the comprehensive report
             metadata_for_report = None
