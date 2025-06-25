@@ -701,16 +701,29 @@ def run_analysis(args):
             # Generate the comprehensive report
             metadata_for_report = None
             if args.metadata:
+                print(f"🔍 Loading metadata from: {args.metadata}")
                 try:
-                    # Load metadata directly for visualization (even if Phase 2 didn't run)
-                    metadata_for_report = pd.read_csv(args.metadata, sep=None, engine='python')
-                    logging.info(f"Loaded metadata for report: {len(metadata_for_report)} rows, {len(metadata_for_report.columns)} columns")
+                    # Check if file exists
+                    if not Path(args.metadata).exists():
+                        print(f"❌ Metadata file not found: {args.metadata}")
+                        logging.error(f"Metadata file not found: {args.metadata}")
+                    else:
+                        # Load metadata directly for visualization (even if Phase 2 didn't run)
+                        metadata_for_report = pd.read_csv(args.metadata, sep=None, engine='python')
+                        print(f"✅ Loaded metadata: {len(metadata_for_report)} rows, {len(metadata_for_report.columns)} columns")
+                        print(f"📋 Metadata columns: {list(metadata_for_report.columns)}")
+                        print(f"📝 First few sample IDs: {metadata_for_report.iloc[:3, 0].tolist() if len(metadata_for_report) > 0 else 'None'}")
+                        logging.info(f"Loaded metadata for report: {len(metadata_for_report)} rows, {len(metadata_for_report.columns)} columns")
                 except Exception as e:
+                    print(f"❌ Error loading metadata: {e}")
                     logging.warning(f"Could not load metadata for report: {e}")
+            else:
+                print("⚠️  No metadata file specified - interactive coloring will not be available")
                     
             # If Phase 2 ran, use its processed metadata instead
             if run_phase2 and 'meta_analyzer' in locals():
                 metadata_for_report = meta_analyzer.metadata
+                print(f"✅ Using Phase 2 processed metadata for report")
                 logging.info(f"Using Phase 2 processed metadata for report")
             
             report_path = create_interactive_report(

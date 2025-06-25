@@ -1081,15 +1081,21 @@ class InteractiveReportGenerator:
         # Add metadata if available
         metadata_cols = []
         if self.report_data.get('metadata') is not None:
+            print(f"🔍 Processing metadata for interactive plot...")
+            print(f"📊 Found metadata with {len(self.report_data['metadata'])} rows and columns: {list(self.report_data['metadata'].columns)}")
             logging.info(f"Found metadata with {len(self.report_data['metadata'])} rows and columns: {list(self.report_data['metadata'].columns)}")
+            
             metadata_for_merge = self.report_data['metadata'].reset_index()
             if 'sample_id' not in metadata_for_merge.columns:
                 metadata_for_merge['sample_id'] = metadata_for_merge.index
             
+            print(f"🔗 Sample names for merging: {sample_names[:3]}...")
+            print(f"🔗 Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
             logging.info(f"Sample names for merging: {sample_names[:3]}...")
             logging.info(f"Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
             
             plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
+            print(f"✅ After merge, plot_df columns: {list(plot_df.columns)}")
             logging.info(f"After merge, plot_df columns: {list(plot_df.columns)}")
             
             # Get metadata columns for coloring options
@@ -1097,11 +1103,16 @@ class InteractiveReportGenerator:
                 if col not in ['sample_id'] and not col.endswith(('_x', '_y')):
                     n_unique = plot_df[col].nunique()
                     non_null = plot_df[col].notna().sum()
+                    print(f"🎨 Column {col}: {n_unique} unique values, {non_null} non-null values")
                     logging.info(f"Column {col}: {n_unique} unique values, {non_null} non-null values")
                     if n_unique > 1 and n_unique <= 20 and non_null > 0:
                         metadata_cols.append(col)
+                        print(f"✅ Added {col} to coloring options")
             
+            print(f"🎨 Selected metadata columns for coloring: {metadata_cols}")
             logging.info(f"Selected metadata columns for coloring: {metadata_cols}")
+        else:
+            print(f"❌ No metadata available for interactive plot")
         
         # Create figure with traces for each method
         fig = go.Figure()
