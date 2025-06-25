@@ -489,18 +489,28 @@ class InteractiveReportGenerator:
         if 'kmer_data' in self.report_data and self.report_data['kmer_data']:
             try:
                 from sklearn.decomposition import PCA
+                print(f"🔬 Found k-mer data, generating PCA plot...")
                 logging.info(f"Found k-mer data, generating PCA plot...")
                 
                 # Extract k-mer profiles for PCA
                 profiles = self.report_data['kmer_data'].get('profiles', {})
+                print(f"📊 K-mer profiles: {len(profiles)} samples found")
+                print(f"🔍 Profile keys: {list(profiles.keys())[:3] if profiles else 'None'}...")
                 logging.info(f"K-mer profiles: {len(profiles)} samples found")
                 if profiles:
+                    # Check profile structure
+                    first_sample = list(profiles.keys())[0]
+                    first_profile = profiles[first_sample]
+                    print(f"📋 First sample '{first_sample}' has {len(first_profile)} k-mers")
+                    print(f"🧬 Sample k-mers: {list(first_profile.keys())[:3]}...")
+                    print(f"📊 Sample values: {list(first_profile.values())[:3]}...")
                     # Convert to matrix
                     sample_names = list(profiles.keys())
                     all_kmers = set()
                     for profile in profiles.values():
                         all_kmers.update(profile.keys())
                     
+                    print(f"🧮 Creating matrix: {len(sample_names)} samples × {len(all_kmers)} k-mers")
                     kmer_matrix = np.zeros((len(sample_names), len(all_kmers)))
                     kmer_list = list(all_kmers)
                     
@@ -508,20 +518,38 @@ class InteractiveReportGenerator:
                         for j, kmer in enumerate(kmer_list):
                             kmer_matrix[i, j] = profiles[sample].get(kmer, 0)
                     
+                    print(f"✅ Matrix created: shape {kmer_matrix.shape}")
+                    print(f"📊 Matrix stats: min={kmer_matrix.min():.3f}, max={kmer_matrix.max():.3f}, mean={kmer_matrix.mean():.3f}")
+                    
                     # Perform PCA
+                    print(f"🔄 Computing PCA...")
                     pca = PCA(n_components=2)
                     pca_result = pca.fit_transform(kmer_matrix)
+                    print(f"✅ PCA completed: {pca_result.shape}")
+                    print(f"📊 Explained variance: {pca.explained_variance_ratio_}")
+                    
+                    print(f"🎨 Creating enhanced plot...")
                     
                     # Create enhanced plot with multiple dimensionality reduction methods
                     fig = self._create_enhanced_kmer_plot(kmer_matrix, sample_names, pca, pca_result)
                     
                     # Convert to HTML div without full page structure
                     pca_html = fig.to_html(include_plotlyjs='cdn', div_id="enhanced-plot", config={'displayModeBar': True})
+                    print(f"✅ Enhanced plot HTML generated successfully")
+                else:
+                    print(f"❌ No k-mer profiles found in data")
+                    pca_html = "<p>No k-mer profiles available for PCA</p>"
                     
             except Exception as e:
+                print(f"❌ PCA plot creation failed: {e}")
+                print(f"📋 Error type: {type(e).__name__}")
+                import traceback
+                print(f"🔍 Full traceback:")
+                traceback.print_exc()
                 logging.warning(f"Could not create PCA plot: {e}")
-                pca_html = "<p>PCA visualization not available</p>"
+                pca_html = f"<p>PCA visualization not available - Error: {e}</p>"
         else:
+            print(f"⚠️  No k-mer data available - using fallback MDS visualization")
             # Fallback: Use distance matrix for PCA-like visualization
             try:
                 from sklearn.decomposition import PCA

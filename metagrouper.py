@@ -696,7 +696,11 @@ def run_analysis(args):
             # Collect all data for the report
             kmer_data_dict = None
             if 'profiles' in locals() and profiles:
+                print(f"🔬 Found k-mer profiles for report: {len(profiles)} samples")
+                print(f"📋 Profile sample names: {list(profiles.keys())[:3]}...")
                 kmer_data_dict = {'profiles': profiles}
+            else:
+                print(f"❌ No k-mer profiles found for interactive report")
             
             # Generate the comprehensive report
             metadata_for_report = None
