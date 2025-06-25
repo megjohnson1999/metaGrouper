@@ -512,97 +512,11 @@ class InteractiveReportGenerator:
                     pca = PCA(n_components=2)
                     pca_result = pca.fit_transform(kmer_matrix)
                     
-                    # Create simple PCA plot using direct plotly
-                    import plotly.express as px
-                    
-                    pca_df = pd.DataFrame({
-                        'PC1': pca_result[:, 0],
-                        'PC2': pca_result[:, 1],
-                        'sample_id': sample_names
-                    })
-                    
-                    # Add metadata if available
-                    if self.report_data.get('metadata') is not None:
-                        metadata_for_merge = self.report_data['metadata'].reset_index()
-                        if 'sample_id' not in metadata_for_merge.columns:
-                            metadata_for_merge['sample_id'] = metadata_for_merge.index
-                        pca_df = pca_df.merge(metadata_for_merge, on='sample_id', how='left')
-                    
-                    # Get metadata columns for coloring options
-                    metadata_cols = []
-                    if self.report_data.get('metadata') is not None:
-                        for col in pca_df.columns:
-                            if col not in ['sample_id', 'PC1', 'PC2']:
-                                n_unique = pca_df[col].nunique()
-                                if n_unique > 1 and n_unique <= 20:
-                                    metadata_cols.append(col)
-                    
-                    # Create base plot with first metadata variable as default color
-                    color_col = metadata_cols[0] if metadata_cols else None
-                    hover_cols = ['sample_id'] + metadata_cols if metadata_cols else ['sample_id']
-                    
-                    fig = px.scatter(
-                        pca_df, 
-                        x='PC1', 
-                        y='PC2',
-                        color=color_col,
-                        hover_data=hover_cols,
-                        title="Interactive K-mer PCA Analysis",
-                        labels={
-                            'PC1': f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)',
-                            'PC2': f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)'
-                        }
-                    )
-                    
-                    # Add color selection dropdown if metadata available
-                    if metadata_cols:
-                        buttons = []
-                        for col in metadata_cols:
-                            buttons.append(
-                                dict(
-                                    label=col.replace('_', ' ').title(),
-                                    method="restyle",
-                                    args=[{"marker.color": pca_df[col]}]
-                                )
-                            )
-                        
-                        # Add no coloring option
-                        buttons.append(
-                            dict(
-                                label="No Coloring",
-                                method="restyle", 
-                                args=[{"marker.color": "blue"}]
-                            )
-                        )
-                        
-                        fig.update_layout(
-                            updatemenus=[
-                                dict(
-                                    buttons=buttons,
-                                    direction="down",
-                                    showactive=True,
-                                    x=0.1,
-                                    y=1.15,
-                                    xanchor="left",
-                                    yanchor="top"
-                                )
-                            ],
-                            annotations=[
-                                dict(
-                                    text="Color by:",
-                                    x=0.05, y=1.18,
-                                    xref="paper", yref="paper",
-                                    align="left",
-                                    showarrow=False
-                                )
-                            ]
-                        )
-                    
-                    fig.update_traces(marker=dict(size=10, opacity=0.8))
-                    fig.update_layout(height=500, template='plotly_white')
+                    # Create enhanced plot with multiple dimensionality reduction methods
+                    fig = self._create_enhanced_kmer_plot(kmer_matrix, sample_names, pca, pca_result)
                     
                     # Convert to HTML div without full page structure
-                    pca_html = fig.to_html(include_plotlyjs='cdn', div_id="pca-plot", config={'displayModeBar': True})
+                    pca_html = fig.to_html(include_plotlyjs='cdn', div_id="enhanced-plot", config={'displayModeBar': True})
                     
             except Exception as e:
                 logging.warning(f"Could not create PCA plot: {e}")
@@ -1187,6 +1101,251 @@ class InteractiveReportGenerator:
 </html>
         '''
     
+    def _create_enhanced_kmer_plot(self, kmer_matrix, sample_names, pca, pca_result):
+        """Create enhanced plot with method switching and metadata coloring."""
+        import plotly.graph_objects as go
+        from sklearn.manifold import TSNE
+        
+        # Compute multiple dimensionality reduction methods
+        projections = {'pca': (pca_result, pca)}
+        
+        # Compute t-SNE
+        try:
+            perplexity = min(30, max(5, len(sample_names) // 4))
+            tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42, max_iter=1000)
+            tsne_result = tsne.fit_transform(kmer_matrix)
+            projections['tsne'] = (tsne_result, tsne)
+        except Exception as e:
+            logging.warning(f"t-SNE computation failed: {e}")
+        
+        # Compute UMAP if available
+        try:
+            import umap
+            n_neighbors = min(15, max(2, len(sample_names) // 3))
+            umap_reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, random_state=42)
+            umap_result = umap_reducer.fit_transform(kmer_matrix)
+            projections['umap'] = (umap_result, umap_reducer)
+        except ImportError:
+            logging.info("UMAP not available, skipping")
+        except Exception as e:
+            logging.warning(f"UMAP computation failed: {e}")
+        
+        # Create base DataFrame
+        plot_data = {'sample_id': sample_names}
+        method_models = {}
+        
+        for method, (projection, model) in projections.items():
+            plot_data[f'{method}_x'] = projection[:, 0]
+            plot_data[f'{method}_y'] = projection[:, 1]
+            method_models[method] = model
+        
+        plot_df = pd.DataFrame(plot_data)
+        
+        # Add metadata if available
+        metadata_cols = []
+        if self.report_data.get('metadata') is not None:
+            metadata_for_merge = self.report_data['metadata'].reset_index()
+            if 'sample_id' not in metadata_for_merge.columns:
+                metadata_for_merge['sample_id'] = metadata_for_merge.index
+            plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
+            
+            # Get metadata columns for coloring options
+            for col in plot_df.columns:
+                if col not in ['sample_id'] and not col.endswith(('_x', '_y')):
+                    n_unique = plot_df[col].nunique()
+                    if n_unique > 1 and n_unique <= 20:
+                        metadata_cols.append(col)
+        
+        # Create figure with traces for each method
+        fig = go.Figure()
+        
+        default_method = list(projections.keys())[0]
+        default_color = metadata_cols[0] if metadata_cols else None
+        
+        # Add traces for each method
+        for i, (method_name, (projection, model)) in enumerate(projections.items()):
+            visible = method_name == default_method
+            
+            # Determine axis labels
+            if method_name == 'pca':
+                x_label = f'PC1 ({model.explained_variance_ratio_[0]:.1%} variance)'
+                y_label = f'PC2 ({model.explained_variance_ratio_[1]:.1%} variance)'
+            else:
+                x_label = f'{method_name.upper()} 1'
+                y_label = f'{method_name.upper()} 2'
+            
+            # Prepare hover data
+            hover_text = []
+            for idx in range(len(sample_names)):
+                hover_info = f"<b>{sample_names[idx]}</b><br>"
+                hover_info += f"{x_label}: {projection[idx, 0]:.3f}<br>"
+                hover_info += f"{y_label}: {projection[idx, 1]:.3f}"
+                
+                # Add metadata to hover
+                for col in metadata_cols:
+                    if col in plot_df.columns:
+                        val = plot_df.iloc[idx][col]
+                        hover_info += f"<br>{col.replace('_', ' ').title()}: {val}"
+                
+                hover_text.append(hover_info)
+            
+            # Determine color array
+            if default_color and default_color in plot_df.columns:
+                color_data = plot_df[default_color]
+                colorscale = 'viridis'
+                colorbar = dict(title=default_color.replace('_', ' ').title())
+            else:
+                color_data = 'blue'
+                colorscale = None
+                colorbar = None
+            
+            fig.add_trace(go.Scatter(
+                x=projection[:, 0],
+                y=projection[:, 1],
+                mode='markers',
+                marker=dict(
+                    size=10,
+                    opacity=0.8,
+                    line=dict(width=1, color='DarkSlateGrey'),
+                    color=color_data,
+                    colorscale=colorscale,
+                    colorbar=colorbar
+                ),
+                name=method_name.upper(),
+                visible=visible,
+                hovertemplate="%{text}<extra></extra>",
+                text=hover_text
+            ))
+        
+        # Create method switching buttons
+        method_buttons = []
+        for i, (method_name, (projection, model)) in enumerate(projections.items()):
+            if method_name == 'pca':
+                x_title = f'PC1 ({model.explained_variance_ratio_[0]:.1%} variance)'
+                y_title = f'PC2 ({model.explained_variance_ratio_[1]:.1%} variance)'
+            else:
+                x_title = f'{method_name.upper()} 1'
+                y_title = f'{method_name.upper()} 2'
+            
+            visibility = [False] * len(projections)
+            visibility[i] = True
+            
+            method_buttons.append(
+                dict(
+                    label=method_name.upper(),
+                    method="update",
+                    args=[
+                        {"visible": visibility},
+                        {"xaxis.title": x_title, "yaxis.title": y_title}
+                    ]
+                )
+            )
+        
+        # Create color buttons if metadata available
+        color_buttons = []
+        if metadata_cols:
+            for col in metadata_cols:
+                color_arrays = []
+                for _ in projections:
+                    color_arrays.append(plot_df[col])
+                
+                color_buttons.append(
+                    dict(
+                        label=col.replace('_', ' ').title(),
+                        method="restyle",
+                        args=[{
+                            "marker.color": color_arrays,
+                            "marker.colorbar.title.text": col.replace('_', ' ').title()
+                        }]
+                    )
+                )
+            
+            # Add no coloring option
+            color_buttons.append(
+                dict(
+                    label="No Coloring",
+                    method="restyle",
+                    args=[{
+                        "marker.color": ['blue'] * len(projections),
+                        "marker.colorbar.title.text": ""
+                    }]
+                )
+            )
+        
+        # Create layout with dropdowns
+        updatemenus = []
+        annotations = []
+        
+        # Method selector
+        updatemenus.append(
+            dict(
+                buttons=method_buttons,
+                direction="down",
+                showactive=True,
+                x=0.1,
+                y=1.15,
+                xanchor="left",
+                yanchor="top"
+            )
+        )
+        annotations.append(
+            dict(
+                text="Method:",
+                x=0.05, y=1.18,
+                xref="paper", yref="paper",
+                align="left",
+                showarrow=False
+            )
+        )
+        
+        # Color selector (if metadata available)
+        if color_buttons:
+            updatemenus.append(
+                dict(
+                    buttons=color_buttons,
+                    direction="down", 
+                    showactive=True,
+                    x=0.4,
+                    y=1.15,
+                    xanchor="left",
+                    yanchor="top"
+                )
+            )
+            annotations.append(
+                dict(
+                    text="Color by:",
+                    x=0.35, y=1.18,
+                    xref="paper", yref="paper", 
+                    align="left",
+                    showarrow=False
+                )
+            )
+        
+        # Set initial axis labels
+        initial_model = method_models[default_method]
+        if default_method == 'pca':
+            x_title = f'PC1 ({initial_model.explained_variance_ratio_[0]:.1%} variance)'
+            y_title = f'PC2 ({initial_model.explained_variance_ratio_[1]:.1%} variance)'
+        else:
+            x_title = f'{default_method.upper()} 1'
+            y_title = f'{default_method.upper()} 2'
+        
+        fig.update_layout(
+            title="Interactive K-mer Analysis",
+            xaxis_title=x_title,
+            yaxis_title=y_title,
+            height=600,
+            width=1000,
+            hovermode='closest',
+            template='plotly_white',
+            font=dict(size=12),
+            updatemenus=updatemenus,
+            annotations=annotations,
+            showlegend=False
+        )
+        
+        return fig
+
     def _save_supporting_files(self):
         """Save supporting files and data."""
         
