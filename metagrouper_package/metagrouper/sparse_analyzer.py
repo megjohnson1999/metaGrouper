@@ -102,7 +102,7 @@ class SparseSimilarityAnalyzer:
         
         # Progress tracking
         total_comparisons = n_samples * (n_samples - 1) // 2
-        next_report = total_comparisons // 20  # Report every 5%
+        next_report = max(1, total_comparisons // 20)  # Report every 5%, minimum 1
         
         for i in range(n_samples):
             profile_i = profiles[self.sample_names[i]]
