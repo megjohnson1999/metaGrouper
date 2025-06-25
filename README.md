@@ -155,6 +155,7 @@ python metagrouper.py /path/to/fastq/files/ \
 # Generate comprehensive interactive HTML report
 python metagrouper.py /path/to/fastq/files/ \
   --metadata samples_metadata.csv \
+  --sample-id-column Sample_ID \
   --output results/ \
   --comprehensive-report \
   --html-title "My Metagenomic Analysis"
@@ -253,7 +254,7 @@ sample_003,P002,baseline,control,site_B
 
 ### Metadata Analysis (Phase 2)
 - `-m, --metadata` - Metadata file (CSV/TSV)
-- `--sample-id-column` - Sample ID column name (default: `sample_id`)
+- `--sample-id-column` - Sample ID column name (default: `sample_id`, common alternatives: `Sample_ID`, `sample`, `accession`, `run_id`)
 - `--variables` - Specific variables to analyze (default: all)
 - `--permutations` - Number of permutations for PERMANOVA (default: 999)
 - `--cluster-range` - Range for cluster numbers to test (default: 2 8)
@@ -466,10 +467,11 @@ python preprocess.py raw_data/ -o clean_data/ --host-index human_genome
 - Verify directory path
 - Ensure files are not empty
 
-**"Metadata column not found"**
-- Check `--sample-id-column` parameter
-- Verify CSV/TSV format
-- Ensure no extra spaces in column names
+**"Metadata column not found"** or **"Could not find sample names in metadata"**
+- Use `--sample-id-column` to specify correct column name (e.g., `--sample-id-column Sample_ID`)
+- Common column names: `sample_id`, `Sample_ID`, `sample`, `accession`, `run_id`, `sra_accession`
+- Verify CSV/TSV format and ensure no extra spaces in column names
+- Check that sample names from FASTQ files match values in metadata column
 
 **"Phase X not available"**
 - Check Python dependencies
