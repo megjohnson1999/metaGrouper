@@ -627,76 +627,13 @@ class InteractiveReportGenerator:
                 logging.warning(f"Could not create MDS plot: {e}")
                 pca_html = "<p>No visualization data available</p>"
         
-        # Create distance heatmap using direct plotly
-        try:
-            import plotly.graph_objects as go
-            
-            # Get sample names and calculate appropriate sizing
-            sample_names = self.report_data['sample_names']
-            n_samples = len(sample_names)
-            
-            # Truncate long sample names for display
-            display_names = []
-            for name in sample_names:
-                if len(name) > 20:
-                    display_names.append(name[:17] + "...")
-                else:
-                    display_names.append(name)
-            
-            # Calculate dynamic sizing based on number of samples
-            base_size = max(600, n_samples * 25)  # Minimum 600px, scale with samples
-            max_size = 1200  # Cap at reasonable size
-            plot_size = min(base_size, max_size)
-            
-            fig = go.Figure(data=go.Heatmap(
-                z=self.report_data['distance_matrix'],
-                x=display_names,
-                y=display_names,
-                colorscale='Viridis',
-                hoverongaps=False,
-                hovertemplate='Sample 1: %{y}<br>Sample 2: %{x}<br>Distance: %{z:.3f}<extra></extra>'
-            ))
-            
-            fig.update_layout(
-                title="Sample Distance Matrix",
-                xaxis_title="Samples",
-                yaxis_title="Samples", 
-                height=plot_size,
-                width=plot_size,
-                template='plotly_white',
-                xaxis=dict(tickangle=45, tickfont=dict(size=10)),
-                yaxis=dict(tickfont=dict(size=10)),
-                margin=dict(l=100, r=50, t=100, b=100)  # Add margins for rotated labels
-            )
-            
-            # Adjust for very large datasets
-            if n_samples > 20:
-                fig.update_layout(
-                    xaxis=dict(tickangle=90, tickfont=dict(size=8)),
-                    yaxis=dict(tickfont=dict(size=8))
-                )
-            
-            # Convert to HTML div without full page structure
-            heatmap_html = fig.to_html(include_plotlyjs='cdn', div_id="heatmap-plot", config={'displayModeBar': True})
-            
-        except Exception as e:
-            logging.warning(f"Could not create heatmap: {e}")
-            heatmap_html = "<p>Heatmap visualization not available</p>"
-        
-        # Combine visualizations
+        # Combine visualizations (removed heatmap)
         viz_html = f"""
         <div class="visualizations-container">
             <div class="viz-section">
-                <h4>📊 K-mer Principal Component Analysis</h4>
+                <h4>📊 Interactive Dimensionality Analysis</h4>
                 <div class="viz-content">
                     {pca_html}
-                </div>
-            </div>
-            
-            <div class="viz-section">
-                <h4>🔥 Sample Distance Heatmap</h4>
-                <div class="viz-content">
-                    {heatmap_html}
                 </div>
             </div>
         </div>
@@ -1191,13 +1128,15 @@ class InteractiveReportGenerator:
             
             # Determine color array
             if default_color and default_color in plot_df.columns:
-                color_data = plot_df[default_color]
+                color_data = plot_df[default_color].tolist()
                 colorscale = 'viridis'
                 colorbar = dict(title=default_color.replace('_', ' ').title())
+                showscale = True
             else:
                 color_data = 'blue'
                 colorscale = None
                 colorbar = None
+                showscale = False
             
             fig.add_trace(go.Scatter(
                 x=projection[:, 0],
@@ -1209,7 +1148,8 @@ class InteractiveReportGenerator:
                     line=dict(width=1, color='DarkSlateGrey'),
                     color=color_data,
                     colorscale=colorscale,
-                    colorbar=colorbar
+                    colorbar=colorbar,
+                    showscale=showscale
                 ),
                 name=method_name.upper(),
                 visible=visible,
@@ -1245,17 +1185,16 @@ class InteractiveReportGenerator:
         color_buttons = []
         if metadata_cols:
             for col in metadata_cols:
-                color_arrays = []
-                for _ in projections:
-                    color_arrays.append(plot_df[col])
+                color_data = plot_df[col].tolist()
                 
                 color_buttons.append(
                     dict(
                         label=col.replace('_', ' ').title(),
                         method="restyle",
                         args=[{
-                            "marker.color": color_arrays,
-                            "marker.colorbar.title.text": col.replace('_', ' ').title()
+                            "marker.color": [color_data] * len(projections),
+                            "marker.colorbar.title.text": col.replace('_', ' ').title(),
+                            "marker.colorscale": "viridis"
                         }]
                     )
                 )
@@ -1266,8 +1205,9 @@ class InteractiveReportGenerator:
                     label="No Coloring",
                     method="restyle",
                     args=[{
-                        "marker.color": ['blue'] * len(projections),
-                        "marker.colorbar.title.text": ""
+                        "marker.color": ["blue"] * len(projections),
+                        "marker.colorbar.title.text": "",
+                        "marker.colorscale": None
                     }]
                 )
             )
