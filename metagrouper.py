@@ -247,7 +247,7 @@ Examples:
     # Metadata Analysis (Phase 2)
     parser.add_argument("-m", "--metadata", help="Metadata file (CSV/TSV) for Phase 2 analysis")
     parser.add_argument("--sample-id-column", default="sample_id",
-                       help="Column name for sample IDs in metadata (default: sample_id)")
+                       help="Column name for sample IDs in metadata (default: sample_id, common alternatives: Sample_ID, sample, accession, run_id)")
     parser.add_argument("--variables", nargs="+",
                        help="Specific metadata variables to analyze (default: all)")
     parser.add_argument("--permutations", type=int, default=999,
@@ -738,7 +738,8 @@ def run_analysis(args):
                 permanova_results=metadata_results_df if run_phase2 and 'metadata_results_df' in locals() and not metadata_results_df.empty else None,
                 assembly_recommendation=assembly_recommendation if run_phase3 else None,
                 kmer_data=kmer_data_dict,
-                title=args.html_title
+                title=args.html_title,
+                sample_id_column=args.sample_id_column
             )
             
             print(f"✅ Comprehensive interactive report generated!")

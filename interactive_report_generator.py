@@ -58,7 +58,8 @@ class InteractiveReportGenerator:
                          metadata: Optional[pd.DataFrame] = None,
                          permanova_results: Optional[pd.DataFrame] = None,
                          assembly_recommendation: Optional[Any] = None,
-                         kmer_data: Optional[Dict] = None):
+                         kmer_data: Optional[Dict] = None,
+                         sample_id_column: str = "sample_id"):
         """
         Add analysis data to the report.
         
@@ -77,6 +78,7 @@ class InteractiveReportGenerator:
             'permanova_results': permanova_results,
             'assembly_recommendation': assembly_recommendation,
             'kmer_data': kmer_data,
+            'sample_id_column': sample_id_column,
             'timestamp': datetime.now().isoformat(),
             'n_samples': len(sample_names)
         })
@@ -571,8 +573,14 @@ class InteractiveReportGenerator:
                 # Add metadata if available
                 if self.report_data.get('metadata') is not None:
                     metadata_for_merge = self.report_data['metadata'].reset_index()
-                    if 'sample_id' not in metadata_for_merge.columns:
-                        metadata_for_merge['sample_id'] = metadata_for_merge.index
+                    sample_id_column = self.report_data.get('sample_id_column', 'sample_id')
+                    
+                    if sample_id_column not in metadata_for_merge.columns:
+                        if 'sample_id' not in metadata_for_merge.columns:
+                            metadata_for_merge['sample_id'] = metadata_for_merge.index
+                    else:
+                        if sample_id_column != 'sample_id':
+                            metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
                     
                     # Fix data type mismatch by converting both to strings
                     pca_df['sample_id'] = pca_df['sample_id'].astype(str)
@@ -1171,8 +1179,22 @@ class InteractiveReportGenerator:
             logging.info(f"Found metadata with {len(self.report_data['metadata'])} rows and columns: {list(self.report_data['metadata'].columns)}")
             
             metadata_for_merge = self.report_data['metadata'].reset_index()
-            if 'sample_id' not in metadata_for_merge.columns:
-                metadata_for_merge['sample_id'] = metadata_for_merge.index
+            sample_id_column = self.report_data.get('sample_id_column', 'sample_id')
+            
+            print(f"🔍 Using '{sample_id_column}' column for sample matching")
+            
+            if sample_id_column not in metadata_for_merge.columns:
+                print(f"❌ Column '{sample_id_column}' not found in metadata!")
+                print(f"📋 Available columns: {list(metadata_for_merge.columns)}")
+                if 'sample_id' not in metadata_for_merge.columns:
+                    metadata_for_merge['sample_id'] = metadata_for_merge.index
+                    sample_id_column = 'sample_id'
+                    print(f"🔧 Falling back to index as 'sample_id'")
+            else:
+                # Rename the specified column to 'sample_id' for consistent processing
+                if sample_id_column != 'sample_id':
+                    metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
+                    print(f"✅ Using '{sample_id_column}' column for matching")
             
             print(f"🔗 Sample names for merging: {sample_names[:3]}...")
             print(f"🔗 Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
@@ -1483,7 +1505,8 @@ def create_interactive_report(distance_matrix: np.ndarray,
                             permanova_results: Optional[pd.DataFrame] = None,
                             assembly_recommendation: Optional[Any] = None,
                             kmer_data: Optional[Dict] = None,
-                            title: str = "MetaGrouper Analysis Report") -> str:
+                            title: str = "MetaGrouper Analysis Report",
+                            sample_id_column: str = "sample_id") -> str:
     """
     Convenience function to create a comprehensive interactive report.
     
@@ -1509,7 +1532,8 @@ def create_interactive_report(distance_matrix: np.ndarray,
         metadata=metadata,
         permanova_results=permanova_results,
         assembly_recommendation=assembly_recommendation,
-        kmer_data=kmer_data
+        kmer_data=kmer_data,
+        sample_id_column=sample_id_column
     )
     
     return generator.create_comprehensive_report()
