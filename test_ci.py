@@ -17,7 +17,7 @@ def test_imports():
         # Test modular imports
         sys.path.insert(0, 'metagrouper_package')
         from metagrouper import (
-            KmerProfiler, 
+            SourmashProfiler, 
             SimilarityAnalyzer, 
             Visualizer,
             find_fastq_files,
@@ -46,7 +46,7 @@ def test_basic_functionality():
     
     # Import after path setup
     sys.path.insert(0, 'metagrouper_package')
-    from metagrouper import KmerProfiler, find_fastq_files
+    from metagrouper import SourmashProfiler, find_fastq_files
     
     # Create minimal test data
     temp_dir = Path(tempfile.mkdtemp())
@@ -64,11 +64,11 @@ def test_basic_functionality():
         print('   ✓ File discovery works')
         
         # Test k-mer profiling
-        profiler = KmerProfiler(k=15, max_reads=5)
-        profile = profiler.profile_sample(str(fastq_file), 'test')
+        profiler = SourmashProfiler(k=15, processes=1)
+        signature = profiler.sketch_sample(str(fastq_file), 'test')
+        profile = {str(h): 1 for h in signature.minhash.hashes}
         
         assert len(profile) > 0, 'Profile should not be empty'
-        assert abs(sum(profile.values()) - 1.0) < 1e-6, 'Profile should be normalized'
         print(f'   ✓ K-mer profiling works ({len(profile)} k-mers)')
         
         return True
@@ -86,7 +86,7 @@ def test_compatibility_wrapper():
     import metagrouper
     
     # Check that key classes are available
-    assert hasattr(metagrouper, 'KmerProfiler'), "KmerProfiler not available"
+    assert hasattr(metagrouper, 'SourmashProfiler'), "SourmashProfiler not available"
     assert hasattr(metagrouper, 'SimilarityAnalyzer'), "SimilarityAnalyzer not available"
     assert hasattr(metagrouper, 'find_fastq_files'), "find_fastq_files not available"
     

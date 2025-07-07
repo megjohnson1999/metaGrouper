@@ -129,6 +129,17 @@ dmypy.json
 .pyre/
 
 # MetaGrouper specific
+# Large SRA data files (keep small examples only)
+SRR055750/
+SRR056888/
+SRR061957/
+SRR061958/
+*.sra
+*.sra.*
+
+# Test output directories (can be regenerated)
+test_*/
+
 # Example and test data
 example_data/
 example_output/

@@ -51,20 +51,66 @@ class InteractiveVisualizer:
         if self.metadata is None:
             return
         
+        print(f"🔍 Validating metadata for interactive visualization...")
+        print(f"📋 Available metadata columns: {list(self.metadata.columns)}")
+        print(f"🧬 Looking for samples like: {self.sample_names[:3] if self.sample_names else 'None'}")
+        
         # Check if sample_id column exists or if index contains sample names
+        sample_col = None
         if 'sample_id' in self.metadata.columns:
             sample_col = 'sample_id'
+            print(f"✅ Found 'sample_id' column")
         elif self.metadata.index.name == 'sample_id' or any(name in self.metadata.index for name in self.sample_names):
             sample_col = self.metadata.index.name or 'index'
+            print(f"✅ Found samples in index: {sample_col}")
         else:
-            # Try to find samples in any column
-            for col in self.metadata.columns:
-                if any(name in self.metadata[col].values for name in self.sample_names):
-                    sample_col = col
-                    break
-            else:
-                logging.warning("Could not find sample names in metadata")
-                return
+            # Try to find samples in any column (including common alternatives)
+            possible_columns = ['sample_id', 'sample', 'accession', 'run_id', 'srr', 'sample_name', 'id', 'sra_accession']
+            
+            print(f"🔍 Checking common column names: {possible_columns}")
+            for col in possible_columns:
+                if col in self.metadata.columns:
+                    # Convert to string and check for matches
+                    col_values = self.metadata[col].astype(str).values
+                    sample_names_str = [str(name) for name in self.sample_names]
+                    
+                    # Try exact matches first
+                    exact_matches = sum(1 for name in sample_names_str if name in col_values)
+                    print(f"   {col}: {exact_matches}/{len(self.sample_names)} exact matches")
+                    
+                    if exact_matches > 0:
+                        sample_col = col
+                        print(f"✅ Using column '{col}' as sample identifier")
+                        break
+                    
+                    # Try partial matches (in case of SRR prefix issues)
+                    partial_matches = sum(1 for name in sample_names_str 
+                                        for val in col_values 
+                                        if name in val or val in name)
+                    if partial_matches > 0:
+                        print(f"   {col}: {partial_matches}/{len(self.sample_names)} partial matches (potential)")
+            
+            if not sample_col:
+                # Try all columns as a last resort with more detailed checking
+                print(f"🔍 Checking all columns for any matches...")
+                for col in self.metadata.columns:
+                    col_values = self.metadata[col].astype(str).values
+                    matches = sum(1 for name in self.sample_names 
+                                for val in col_values 
+                                if str(name) in str(val) or str(val) in str(name))
+                    if matches > 0:
+                        print(f"   {col}: {matches} potential matches found")
+                        sample_col = col
+                        break
+                
+                if not sample_col:
+                    print(f"❌ Could not find sample names in any metadata column")
+                    print(f"📋 First few metadata rows:")
+                    for i, row in self.metadata.head(3).iterrows():
+                        print(f"     Row {i}: {dict(row)}")
+                    print(f"🧬 FASTQ sample names: {self.sample_names[:5]}")
+                    logging.warning("Could not find sample names in metadata")
+                    return
         
         # Filter metadata to only include samples we have
         if sample_col == 'index' or sample_col == self.metadata.index.name:

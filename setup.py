@@ -77,7 +77,6 @@ setup(
     scripts=[
         "metagrouper.py",
         "preprocess.py",
-        "example_usage.py",
         "example_phase2.py",
         "example_phase3.py",
     ],

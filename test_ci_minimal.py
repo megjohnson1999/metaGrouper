@@ -19,14 +19,14 @@ def test_modular_imports():
         sys.path.insert(0, 'metagrouper_package')
         
         # Test core imports
-        from metagrouper.profiler import KmerProfiler
+        from metagrouper.sourmash_profiler import SourmashProfiler
         from metagrouper.utils import find_fastq_files
         from metagrouper.analyzer import SimilarityAnalyzer
         
         print("   ✓ Core module imports work")
         
         # Test package-level imports
-        from metagrouper import KmerProfiler as PkgKmerProfiler
+        from metagrouper import SourmashProfiler as PkgSourmashProfiler
         from metagrouper import find_fastq_files as pkg_find_files
         
         print("   ✓ Package-level imports work")
@@ -44,7 +44,7 @@ def test_basic_kmer_profiling():
     try:
         # Import after setting path
         sys.path.insert(0, 'metagrouper_package')
-        from metagrouper.profiler import KmerProfiler
+        from metagrouper.sourmash_profiler import SourmashProfiler
         from metagrouper.utils import find_fastq_files
         
         # Create minimal test data
@@ -65,8 +65,9 @@ def test_basic_kmer_profiling():
             print("   ✓ File discovery works")
             
             # Test k-mer profiling
-            profiler = KmerProfiler(k=15, max_reads=3)
-            profile = profiler.profile_sample(str(fastq_file), 'test')
+            profiler = SourmashProfiler(k=15, processes=1)
+            signature = profiler.sketch_sample(str(fastq_file), 'test')
+            profile = {str(h): 1 for h in signature.minhash.hashes}
             
             if len(profile) == 0:
                 print("   ❌ Profile is empty")
@@ -99,7 +100,7 @@ def test_compatibility_wrapper():
         import metagrouper
         
         # Check that it has the expected attributes
-        expected_attrs = ['KmerProfiler', 'SimilarityAnalyzer', 'find_fastq_files']
+        expected_attrs = ['SourmashProfiler', 'SimilarityAnalyzer', 'find_fastq_files']
         
         for attr in expected_attrs:
             if not hasattr(metagrouper, attr):

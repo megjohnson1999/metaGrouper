@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from metagrouper import (
-    KmerProfiler,
+    SourmashProfiler,
     SimilarityAnalyzer,
     Visualizer,
     find_fastq_files,
@@ -32,13 +32,13 @@ from metagrouper.utils import (
 )
 
 
-class TestModularKmerProfiler(unittest.TestCase):
-    """Test the modular KmerProfiler implementation."""
+class TestModularSourmashProfiler(unittest.TestCase):
+    """Test the modular SourmashProfiler implementation."""
     
     def setUp(self):
         """Set up test environment."""
         self.temp_dir = Path(tempfile.mkdtemp())
-        self.profiler = KmerProfiler(k=17, min_kmer_freq=1)
+        self.profiler = SourmashProfiler(k=17, processes=1)
         
         # Create test FASTQ files
         self.create_test_fastq_files()
@@ -410,7 +410,7 @@ class TestModularIntegration(unittest.TestCase):
         self.assertEqual(len(fastq_files), 3)
         
         # Profile samples
-        profiler = KmerProfiler(
+        profiler = SourmashProfiler(
             k=config.profiling.k_size,
             max_reads=config.profiling.max_reads,
             min_kmer_freq=config.profiling.min_kmer_freq
@@ -469,7 +469,7 @@ def run_modular_tests():
     
     # Add test classes
     test_classes = [
-        TestModularKmerProfiler,
+        TestModularSourmashProfiler,
         TestModularSimilarityAnalyzer,
         TestModularVisualizer,
         TestModularUtils,
