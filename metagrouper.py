@@ -17,8 +17,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Add the package to the path
+# Add the package and phases to the path
 sys.path.insert(0, str(Path(__file__).parent / "metagrouper_package"))
+sys.path.insert(0, str(Path(__file__).parent / "phases"))
 
 from metagrouper import (
     find_fastq_files,
