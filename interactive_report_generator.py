@@ -1309,7 +1309,13 @@ class InteractiveReportGenerator:
             
             # Determine color array
             if default_color and default_color in plot_df.columns:
-                color_data = plot_df[default_color].tolist()
+                # Convert categorical data to numeric codes for Plotly
+                if plot_df[default_color].dtype == 'object' or pd.api.types.is_categorical_dtype(plot_df[default_color]):
+                    # For categorical data, convert to numeric codes
+                    color_data = pd.Categorical(plot_df[default_color]).codes
+                else:
+                    # For numeric data, use as-is
+                    color_data = plot_df[default_color].tolist()
                 colorscale = 'viridis'
                 colorbar = dict(title=default_color.replace('_', ' ').title())
                 showscale = True
@@ -1366,7 +1372,13 @@ class InteractiveReportGenerator:
         color_buttons = []
         if metadata_cols:
             for col in metadata_cols:
-                color_data = plot_df[col].tolist()
+                # Convert categorical data to numeric codes for Plotly
+                if plot_df[col].dtype == 'object' or pd.api.types.is_categorical_dtype(plot_df[col]):
+                    # For categorical data, convert to numeric codes
+                    color_data = pd.Categorical(plot_df[col]).codes.tolist()
+                else:
+                    # For numeric data, use as-is
+                    color_data = plot_df[col].tolist()
                 
                 color_buttons.append(
                     dict(
