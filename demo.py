@@ -414,8 +414,8 @@ def run_quick_test():
             f.write("@read1\nATCGATCGATCGATCGATCG\n+\n~~~~~~~~~~~~~~~~~~~~\n")
             f.write("@read2\nATCGATCGATCGATCGATCG\n+\n~~~~~~~~~~~~~~~~~~~~\n")
 
-        # Test k-mer profiling with sourmash
-        profiler = metagrouper.SourmashProfiler(k=15, processes=1)
+        # Test k-mer profiling with sourmash (use num_hashes for small test data)
+        profiler = metagrouper.SourmashProfiler(k=15, processes=1, num_hashes=100, scaled=0)
         signature = profiler.sketch_sample(str(fastq_file), "test")
         profile = {str(h): 1 for h in signature.minhash.hashes}
 

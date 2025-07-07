@@ -63,8 +63,8 @@ def test_basic_functionality():
         assert len(files) == 1, f'Expected 1 file, got {len(files)}'
         print('   ✓ File discovery works')
         
-        # Test k-mer profiling
-        profiler = SourmashProfiler(k=15, processes=1)
+        # Test k-mer profiling (use num_hashes for small test data)
+        profiler = SourmashProfiler(k=15, processes=1, num_hashes=100, scaled=0)
         signature = profiler.sketch_sample(str(fastq_file), 'test')
         profile = {str(h): 1 for h in signature.minhash.hashes}
         
