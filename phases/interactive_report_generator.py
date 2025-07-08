@@ -1482,12 +1482,17 @@ class InteractiveReportGenerator:
                     
                     if name_mapping and best_transform:
                         print(f"🔧 Applying '{best_transform}' transformation and re-merging...")
-                        # Apply the best transformation
-                        plot_df['sample_id_transformed'] = plot_df['sample_id'].map(name_mapping)
-                        plot_df = plot_df.drop('sample_id', axis=1).rename(columns={'sample_id_transformed': 'sample_id'})
                         
-                        # Re-merge with transformed names
-                        plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
+                        # Clean plot_df to just the essential columns before re-merge
+                        essential_cols = ['sample_id', 'pca_x', 'pca_y', 'tsne_x', 'tsne_y', 'umap_x', 'umap_y']
+                        plot_df_clean = plot_df[essential_cols].copy()
+                        
+                        # Apply the best transformation
+                        plot_df_clean['sample_id_transformed'] = plot_df_clean['sample_id'].map(name_mapping)
+                        plot_df_clean = plot_df_clean.drop('sample_id', axis=1).rename(columns={'sample_id_transformed': 'sample_id'})
+                        
+                        # Re-merge with transformed names (no column conflicts now)
+                        plot_df = plot_df_clean.merge(metadata_for_merge, on='sample_id', how='left')
                         
                         # Check success - recalculate metadata columns after transformation
                         updated_metadata_cols = [col for col in plot_df.columns if col not in ['sample_id'] and not col.endswith(('_x', '_y'))]
