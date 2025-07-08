@@ -473,6 +473,41 @@ def run_analysis(args):
             
             print(f"✅ Phase 2 analysis completed successfully")
             
+            # Display statistical testing summary
+            if not metadata_results_df.empty:
+                print(f"\n📈 Statistical Testing Summary (PERMANOVA):")
+                print("-" * 45)
+                
+                total_variables = len(metadata_results_df)
+                significant_vars = metadata_results_df[metadata_results_df['p_value'] < 0.05]
+                num_significant = len(significant_vars)
+                
+                # Get top variable info
+                top_variable = metadata_results_df.iloc[0] if len(metadata_results_df) > 0 else None
+                
+                print(f"📊 Tested {total_variables} metadata variables for association with sample composition")
+                
+                if num_significant > 0:
+                    print(f"✅ Found {num_significant} significant variable{'s' if num_significant != 1 else ''} (p < 0.05)")
+                    if top_variable is not None:
+                        r_squared_pct = top_variable['r_squared'] * 100
+                        print(f"🏆 Top variable '{top_variable['variable']}' explains {r_squared_pct:.1f}% of variation (R² = {top_variable['r_squared']:.3f})")
+                        
+                        # Biological interpretation
+                        if top_variable['r_squared'] > 0.3:
+                            interpretation = "strong biological association"
+                        elif top_variable['r_squared'] > 0.15:
+                            interpretation = "moderate biological association"
+                        else:
+                            interpretation = "weak but detectable association"
+                        print(f"💡 This indicates a {interpretation} between this variable and microbial composition")
+                else:
+                    print(f"⚠️  No variables showed significant association (all p ≥ 0.05)")
+                    print(f"💭 Consider similarity-based grouping instead of metadata-based grouping")
+                
+                print(f"📄 Detailed results saved to: permanova_results.csv")
+                print()
+            
         except Exception as e:
             logging.error(f"Phase 2 analysis failed: {e}")
             print(f"❌ Phase 2 analysis failed: {e}")
