@@ -1577,10 +1577,20 @@ class InteractiveReportGenerator:
                 if is_categorical:
                     # For categorical data, use discrete color mapping
                     import plotly.colors as pc
-                    categories = plot_df[default_color].unique()
+                    import pandas as pd
+                    categories = plot_df[default_color].dropna().unique()  # Remove NaN values
                     color_discrete_map = {cat: pc.qualitative.Set3[i % len(pc.qualitative.Set3)] 
                                         for i, cat in enumerate(categories)}
-                    color_data = [color_discrete_map[val] for val in plot_df[default_color]]
+                    # Add a color for missing values
+                    color_discrete_map[pd.NA] = '#cccccc'  # Light gray for missing
+                    color_discrete_map[None] = '#cccccc'
+                    # Handle NaN values properly
+                    color_data = []
+                    for val in plot_df[default_color]:
+                        if pd.isna(val):
+                            color_data.append('#cccccc')  # Gray for missing values
+                        else:
+                            color_data.append(color_discrete_map[val])
                     colorscale = None
                     colorbar = None
                     showscale = False  # Don't show colorbar for categorical
@@ -1651,10 +1661,20 @@ class InteractiveReportGenerator:
                 if is_categorical:
                     # For categorical data, use discrete color mapping
                     import plotly.colors as pc
-                    categories = plot_df[col].unique()
+                    import pandas as pd
+                    categories = plot_df[col].dropna().unique()  # Remove NaN values
                     color_discrete_map = {cat: pc.qualitative.Set3[i % len(pc.qualitative.Set3)] 
                                         for i, cat in enumerate(categories)}
-                    color_data = [color_discrete_map[val] for val in plot_df[col]]
+                    # Add a color for missing values
+                    color_discrete_map[pd.NA] = '#cccccc'  # Light gray for missing
+                    color_discrete_map[None] = '#cccccc'
+                    # Handle NaN values properly
+                    color_data = []
+                    for val in plot_df[col]:
+                        if pd.isna(val):
+                            color_data.append('#cccccc')  # Gray for missing values
+                        else:
+                            color_data.append(color_discrete_map[val])
                     colorscale = None
                     showscale_setting = False
                 else:
