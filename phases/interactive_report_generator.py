@@ -1330,6 +1330,7 @@ class InteractiveReportGenerator:
         # Try different transformations
         transformations = {
             'exact': lambda x: x,
+            'remove_last_underscore': lambda x: '_'.join(x.split('_')[:-1]) if '_' in x else x,  # sample_001_hr -> sample_001, sample_clean -> sample
             'remove_suffix': lambda x: x.split('_')[0].split('.')[0],  # SRR123_1.fastq -> SRR123
             'extract_srr': lambda x: x if x.startswith('SRR') else ('SRR' + x if x.isdigit() else x),  # 123 -> SRR123
             'remove_srr_prefix': lambda x: x[3:] if x.startswith('SRR') else x,  # SRR123 -> 123
@@ -1343,18 +1344,32 @@ class InteractiveReportGenerator:
         fastq_set = set(fastq_names)
         metadata_set = set(metadata_ids)
         
+        # Smart per-sample matching: preserve existing matches, transform others
+        final_mapping = {}
+        
         for transform_name, transform_func in transformations.items():
             try:
-                # Transform FASTQ names and see how many match metadata IDs
-                transformed_fastq = {orig: transform_func(orig) for orig in fastq_names}
-                matches = sum(1 for transformed in transformed_fastq.values() if transformed in metadata_set)
+                current_mapping = {}
+                current_matches = 0
                 
-                print(f"   {transform_name}: {matches}/{len(fastq_names)} matches")
+                for orig_name in fastq_names:
+                    # If this is exact matching or name doesn't already have an exact match
+                    if transform_name == 'exact' or orig_name not in metadata_set:
+                        transformed = transform_func(orig_name)
+                        current_mapping[orig_name] = transformed
+                        if transformed in metadata_set:
+                            current_matches += 1
+                    else:
+                        # Preserve existing exact matches
+                        current_mapping[orig_name] = orig_name
+                        current_matches += 1
                 
-                if matches > best_matches:
-                    best_matches = matches
+                print(f"   {transform_name}: {current_matches}/{len(fastq_names)} matches")
+                
+                if current_matches > best_matches:
+                    best_matches = current_matches
                     best_transform = transform_name
-                    best_mapping = transformed_fastq
+                    best_mapping = current_mapping
                     
             except Exception as e:
                 print(f"   {transform_name}: failed ({e})")
