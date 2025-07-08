@@ -1569,14 +1569,20 @@ class InteractiveReportGenerator:
             
             # Determine color array
             if default_color and default_color in plot_df.columns:
-                # Convert categorical data to numeric codes for Plotly
-                if plot_df[default_color].dtype == 'object' or pd.api.types.is_categorical_dtype(plot_df[default_color]):
-                    # For categorical data, convert to numeric codes
+                # Check if categorical or continuous
+                is_categorical = (plot_df[default_color].dtype == 'object' or 
+                                pd.api.types.is_categorical_dtype(plot_df[default_color]) or
+                                plot_df[default_color].nunique() <= 10)  # Treat <= 10 unique values as categorical
+                
+                if is_categorical:
+                    # For categorical data, convert to numeric codes and use discrete colors
                     color_data = pd.Categorical(plot_df[default_color]).codes
+                    colorscale = 'Set3'  # Discrete colorscale for categories
                 else:
-                    # For numeric data, use as-is
+                    # For numeric data, use as-is with continuous colorscale
                     color_data = plot_df[default_color].tolist()
-                colorscale = 'viridis'
+                    colorscale = 'viridis'  # Continuous colorscale for numeric
+                
                 colorbar = dict(title=default_color.replace('_', ' ').title())
                 showscale = True
             else:
@@ -1632,13 +1638,19 @@ class InteractiveReportGenerator:
         color_buttons = []
         if metadata_cols:
             for col in metadata_cols:
-                # Convert categorical data to numeric codes for Plotly
-                if plot_df[col].dtype == 'object' or pd.api.types.is_categorical_dtype(plot_df[col]):
-                    # For categorical data, convert to numeric codes
+                # Check if categorical or continuous
+                is_categorical = (plot_df[col].dtype == 'object' or 
+                                pd.api.types.is_categorical_dtype(plot_df[col]) or
+                                plot_df[col].nunique() <= 10)  # Treat <= 10 unique values as categorical
+                
+                if is_categorical:
+                    # For categorical data, convert to numeric codes and use discrete colors
                     color_data = pd.Categorical(plot_df[col]).codes.tolist()
+                    colorscale = "Set3"  # Discrete colorscale for categories
                 else:
-                    # For numeric data, use as-is
+                    # For numeric data, use as-is with continuous colorscale
                     color_data = plot_df[col].tolist()
+                    colorscale = "viridis"  # Continuous colorscale for numeric
                 
                 color_buttons.append(
                     dict(
@@ -1647,7 +1659,7 @@ class InteractiveReportGenerator:
                         args=[{
                             "marker.color": [color_data] * len(projections),
                             "marker.colorbar.title.text": col.replace('_', ' ').title(),
-                            "marker.colorscale": "viridis"
+                            "marker.colorscale": colorscale
                         }]
                     )
                 )
