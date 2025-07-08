@@ -6,8 +6,10 @@ This module provides a fast alternative to the built-in k-mer profiling
 using sourmash's MinHash sketches for improved performance on large datasets.
 """
 
+import csv
 import logging
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -104,13 +106,44 @@ class SourmashProfiler:
         # Handle both single files and paired-end file lists
         file_paths = [filepath] if isinstance(filepath, str) else filepath
         
-        for file_path in file_paths:
-            logging.debug(f"Processing {file_path}")
+        # For paired-end files, concatenate them like in manual script
+        if isinstance(filepath, list) and len(filepath) == 2:
+            # This is paired-end data - concatenate R1 and R2 like manual script
+            logging.debug(f"Processing paired-end sample: {filepath[0]} + {filepath[1]}")
             
-            # Use screed to parse FASTQ files
-            import screed
-            for record in screed.open(file_path):
-                mh.add_sequence(record.sequence, force=True)
+            # Create temporary combined file
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.fastq', delete=False) as temp_combined:
+                temp_combined_path = temp_combined.name
+            
+            try:
+                # Concatenate R1 and R2 files like in manual script: cat ${r1_file} ${r2_file} > combined.fastq
+                with open(temp_combined_path, 'w') as outfile:
+                    for file_path in file_paths:
+                        logging.debug(f"Adding {file_path} to combined file")
+                        with open(file_path, 'r') as infile:
+                            outfile.write(infile.read())
+                
+                # Process the combined file
+                import screed
+                for record in screed.open(temp_combined_path):
+                    mh.add_sequence(record.sequence, force=True)
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_combined_path)
+                except:
+                    pass
+        else:
+            # Single-end or single file processing
+            for file_path in file_paths:
+                logging.debug(f"Processing {file_path}")
+                
+                # Use screed to parse FASTQ files
+                import screed
+                for record in screed.open(file_path):
+                    mh.add_sequence(record.sequence, force=True)
         
         # Create signature
         if sample_name is None:
@@ -186,7 +219,62 @@ class SourmashProfiler:
     
     def compute_similarity_matrix(self, signatures: Dict[str, SourmashSignature]) -> np.ndarray:
         """
-        Compute pairwise Jaccard similarity matrix.
+        Compute pairwise Jaccard similarity matrix using sourmash compare.
+        
+        Args:
+            signatures: Dictionary of sourmash signatures
+            
+        Returns:
+            Similarity matrix as numpy array
+        """
+        sample_names = list(signatures.keys())
+        n_samples = len(sample_names)
+        
+        # Create temporary file for signatures
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sig', delete=False) as temp_sig_file:
+            temp_sig_path = temp_sig_file.name
+            sourmash.save_signatures(signatures.values(), temp_sig_file)
+        
+        # Create temporary file for output matrix
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as temp_matrix_file:
+            temp_matrix_path = temp_matrix_file.name
+        
+        try:
+            # Run sourmash compare with CSV output
+            cmd = ['sourmash', 'compare', temp_sig_path, '--csv', temp_matrix_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            logging.debug(f"sourmash compare completed: {result.stderr}")
+            
+            # Read the similarity matrix from CSV
+            similarity_matrix = np.zeros((n_samples, n_samples))
+            with open(temp_matrix_path, 'r') as f:
+                reader = csv.reader(f)
+                # Skip header row (sample names)
+                next(reader, None)
+                for i, row in enumerate(reader):
+                    # Skip the first column (sample name) and read the similarity values
+                    for j, value in enumerate(row[1:]):
+                        similarity_matrix[i, j] = float(value)
+            
+            return similarity_matrix
+            
+        except subprocess.CalledProcessError as e:
+            logging.error(f"sourmash compare failed: {e.stderr}")
+            # Fall back to manual computation
+            logging.warning("Falling back to manual similarity computation")
+            return self._compute_similarity_matrix_manual(signatures)
+        
+        finally:
+            # Clean up temporary files
+            try:
+                os.unlink(temp_sig_path)
+                os.unlink(temp_matrix_path)
+            except:
+                pass
+    
+    def _compute_similarity_matrix_manual(self, signatures: Dict[str, SourmashSignature]) -> np.ndarray:
+        """
+        Manual computation of similarity matrix as fallback.
         
         Args:
             signatures: Dictionary of sourmash signatures
