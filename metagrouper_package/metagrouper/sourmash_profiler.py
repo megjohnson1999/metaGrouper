@@ -113,6 +113,8 @@ class SourmashProfiler:
             
             # Create temporary combined file
             import tempfile
+            import gzip
+            
             with tempfile.NamedTemporaryFile(mode='w', suffix='.fastq', delete=False) as temp_combined:
                 temp_combined_path = temp_combined.name
             
@@ -121,8 +123,14 @@ class SourmashProfiler:
                 with open(temp_combined_path, 'w') as outfile:
                     for file_path in file_paths:
                         logging.debug(f"Adding {file_path} to combined file")
-                        with open(file_path, 'r') as infile:
-                            outfile.write(infile.read())
+                        
+                        # Handle both gzipped and plain text files
+                        if file_path.endswith('.gz'):
+                            with gzip.open(file_path, 'rt', encoding='utf-8') as infile:
+                                outfile.write(infile.read())
+                        else:
+                            with open(file_path, 'r', encoding='utf-8') as infile:
+                                outfile.write(infile.read())
                 
                 # Process the combined file
                 import screed
@@ -140,7 +148,7 @@ class SourmashProfiler:
             for file_path in file_paths:
                 logging.debug(f"Processing {file_path}")
                 
-                # Use screed to parse FASTQ files
+                # Use screed to parse FASTQ files (screed handles gzipped files automatically)
                 import screed
                 for record in screed.open(file_path):
                     mh.add_sequence(record.sequence, force=True)
