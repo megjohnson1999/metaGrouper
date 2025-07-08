@@ -169,6 +169,149 @@ class AssemblyStrategyEngine:
 
         return final_groups
 
+    def generate_metadata_grouping_recommendations(
+        self, metadata_results: pd.DataFrame, metadata: pd.DataFrame
+    ) -> List[Dict[str, Any]]:
+        """Generate intelligent 'group by X' recommendations based on metadata analysis."""
+        logging.info("Generating metadata grouping recommendations")
+        
+        if metadata_results.empty or metadata is None:
+            return []
+        
+        recommendations = []
+        
+        # Focus on significant and explanatory variables
+        significant_vars = metadata_results[
+            (metadata_results["p_value"] < self.significance_threshold)
+            | (metadata_results["r_squared"] > 0.15)  # Include moderately explanatory variables
+        ].sort_values("r_squared", ascending=False)
+        
+        for _, row in significant_vars.iterrows():
+            variable = row["variable"]
+            
+            if variable not in metadata.columns:
+                continue
+            
+            # Analyze grouping potential for this variable
+            var_data = metadata[variable].dropna()
+            
+            if len(var_data) < 2:
+                continue
+            
+            unique_values = var_data.unique()
+            value_counts = var_data.value_counts()
+            
+            # Calculate grouping statistics
+            total_samples = len(var_data)
+            num_groups = len(unique_values)
+            group_sizes = value_counts.tolist()
+            min_group_size = min(group_sizes)
+            max_group_size = max(group_sizes)
+            avg_group_size = total_samples / num_groups
+            
+            # Filter out groups that are too small
+            viable_groups = [size for size in group_sizes if size >= self.min_group_size]
+            num_viable_groups = len(viable_groups)
+            samples_in_viable_groups = sum(viable_groups)
+            
+            if num_viable_groups < 2:  # Need at least 2 viable groups
+                continue
+            
+            # Calculate confidence based on multiple factors
+            r_squared = row["r_squared"]
+            p_value = row.get("p_value", 1.0)
+            
+            # Confidence factors
+            statistical_confidence = min(r_squared * 2, 1.0)  # R² contribution
+            size_balance_factor = min(min_group_size / max_group_size, 1.0)  # Group size balance
+            coverage_factor = samples_in_viable_groups / total_samples  # Sample coverage
+            
+            overall_confidence = (statistical_confidence * 0.5 + 
+                                size_balance_factor * 0.2 + 
+                                coverage_factor * 0.3)
+            
+            # Generate recommendation rationale
+            rationale_parts = []
+            
+            if r_squared > 0.3:
+                rationale_parts.append(f"Strong association (R² = {r_squared:.3f})")
+            elif r_squared > 0.15:
+                rationale_parts.append(f"Moderate association (R² = {r_squared:.3f})")
+            
+            if p_value < 0.001:
+                rationale_parts.append("highly significant (p < 0.001)")
+            elif p_value < 0.01:
+                rationale_parts.append("very significant (p < 0.01)")
+            elif p_value < 0.05:
+                rationale_parts.append("significant (p < 0.05)")
+            
+            rationale_parts.append(f"creates {num_viable_groups} viable groups")
+            rationale_parts.append(f"covers {samples_in_viable_groups}/{total_samples} samples")
+            
+            # Generate benefits and challenges
+            benefits = []
+            challenges = []
+            
+            if avg_group_size >= 3 and avg_group_size <= 10:
+                benefits.append("Optimal group sizes for co-assembly")
+            elif avg_group_size > 10:
+                benefits.append("Large groups may improve assembly contiguity")
+                challenges.append("Large groups may increase computational requirements")
+            else:
+                challenges.append("Small groups may limit co-assembly benefits")
+            
+            if r_squared > 0.3:
+                benefits.append("Strong biological basis for grouping")
+            
+            if size_balance_factor > 0.7:
+                benefits.append("Well-balanced group sizes")
+            else:
+                challenges.append("Uneven group size distribution")
+            
+            # Determine recommended strategy
+            if avg_group_size <= 2:
+                strategy = "individual"
+                strategy_note = "Groups too small for effective co-assembly"
+            elif avg_group_size <= 15 and overall_confidence > 0.6:
+                strategy = "grouped_coassembly"
+                strategy_note = "Recommended for group-wise co-assembly"
+            elif num_viable_groups <= 3 and total_samples > 20:
+                strategy = "grouped_coassembly"
+                strategy_note = "Large groups suitable for co-assembly"
+            else:
+                strategy = "individual"
+                strategy_note = "Consider individual assembly due to complexity"
+            
+            recommendation = {
+                "variable": variable,
+                "strategy": strategy,
+                "confidence": overall_confidence,
+                "r_squared": r_squared,
+                "p_value": p_value,
+                "num_groups": num_viable_groups,
+                "total_samples": total_samples,
+                "samples_in_viable_groups": samples_in_viable_groups,
+                "group_sizes": viable_groups,
+                "min_group_size": min_group_size,
+                "max_group_size": max_group_size,
+                "avg_group_size": avg_group_size,
+                "rationale": " - ".join(rationale_parts),
+                "strategy_note": strategy_note,
+                "benefits": benefits,
+                "challenges": challenges,
+                "recommendation_text": f"Group by '{variable}': {strategy_note} "
+                                     f"(confidence: {overall_confidence:.2f}, "
+                                     f"R² = {r_squared:.3f}, "
+                                     f"{num_viable_groups} groups of {min_group_size}-{max_group_size} samples)"
+            }
+            
+            recommendations.append(recommendation)
+        
+        # Sort by confidence, then by R²
+        recommendations.sort(key=lambda x: (x["confidence"], x["r_squared"]), reverse=True)
+        
+        return recommendations
+
     def recommend_by_metadata(
         self, metadata_results: pd.DataFrame, metadata: pd.DataFrame
     ) -> List[AssemblyGroup]:
@@ -462,6 +605,23 @@ class AssemblyRecommender:
         self.strategy_engine = AssemblyStrategyEngine(distance_matrix, sample_names)
         self.command_generator = AssemblyCommandGenerator()
         self.performance_predictor = PerformancePredictor(distance_matrix, sample_names)
+
+    def generate_metadata_grouping_recommendations(
+        self, metadata_results: pd.DataFrame, metadata: pd.DataFrame
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate intelligent 'group by X' recommendations based on metadata analysis.
+        
+        Args:
+            metadata_results: PERMANOVA results DataFrame
+            metadata: Metadata DataFrame
+            
+        Returns:
+            List of grouping recommendations with confidence scores and explanations
+        """
+        return self.strategy_engine.generate_metadata_grouping_recommendations(
+            metadata_results, metadata
+        )
 
     def generate_recommendations(
         self,

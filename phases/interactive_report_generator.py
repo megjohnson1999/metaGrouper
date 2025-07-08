@@ -59,6 +59,7 @@ class InteractiveReportGenerator:
                          permanova_results: Optional[pd.DataFrame] = None,
                          assembly_recommendation: Optional[Any] = None,
                          kmer_data: Optional[Dict] = None,
+                         grouping_recommendations: Optional[List[Dict]] = None,
                          sample_id_column: str = "sample_id"):
         """
         Add analysis data to the report.
@@ -70,6 +71,7 @@ class InteractiveReportGenerator:
             permanova_results: PERMANOVA analysis results
             assembly_recommendation: Assembly strategy recommendation
             kmer_data: K-mer analysis data
+            grouping_recommendations: Intelligent metadata grouping recommendations
         """
         self.report_data.update({
             'distance_matrix': distance_matrix,
@@ -78,6 +80,7 @@ class InteractiveReportGenerator:
             'permanova_results': permanova_results,
             'assembly_recommendation': assembly_recommendation,
             'kmer_data': kmer_data,
+            'grouping_recommendations': grouping_recommendations,
             'sample_id_column': sample_id_column,
             'timestamp': datetime.now().isoformat(),
             'n_samples': len(sample_names)
@@ -1749,6 +1752,7 @@ def create_interactive_report(distance_matrix: np.ndarray,
                             permanova_results: Optional[pd.DataFrame] = None,
                             assembly_recommendation: Optional[Any] = None,
                             kmer_data: Optional[Dict] = None,
+                            grouping_recommendations: Optional[List[Dict]] = None,
                             title: str = "MetaGrouper Analysis Report",
                             sample_id_column: str = "sample_id") -> str:
     """
@@ -1777,6 +1781,7 @@ def create_interactive_report(distance_matrix: np.ndarray,
         permanova_results=permanova_results,
         assembly_recommendation=assembly_recommendation,
         kmer_data=kmer_data,
+        grouping_recommendations=grouping_recommendations,
         sample_id_column=sample_id_column
     )
     

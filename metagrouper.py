@@ -482,6 +482,7 @@ def run_analysis(args):
     # PHASE 3: Assembly Strategy Recommendations
     # =============================================================================
     assembly_recommendation = None
+    grouping_recommendations = None
     
     if run_phase3:
         print(f"\n🔧 Phase 3: Assembly Strategy Recommendations")
@@ -511,6 +512,44 @@ def run_analysis(args):
                 if tool in tools
             }
             assembly_recommendation.assembly_commands = filtered_commands
+            
+            # Generate and display intelligent grouping recommendations
+            if run_phase2 and metadata_results_df is not None:
+                print(f"\n📊 Metadata Grouping Recommendations:")
+                print("-" * 40)
+                
+                grouping_recommendations = recommender.generate_metadata_grouping_recommendations(
+                    metadata_results_df, 
+                    getattr(meta_analyzer, 'metadata', None)
+                )
+                
+                if grouping_recommendations:
+                    print(f"💡 Top assembly grouping strategies based on your metadata:")
+                    print()
+                    
+                    for i, rec in enumerate(grouping_recommendations[:5], 1):  # Show top 5
+                        confidence_emoji = "🟢" if rec['confidence'] > 0.7 else "🟡" if rec['confidence'] > 0.4 else "🔴"
+                        strategy_emoji = "👥" if rec['strategy'] == "grouped_coassembly" else "🔄"
+                        
+                        print(f"{i}. {confidence_emoji} {strategy_emoji} {rec['recommendation_text']}")
+                        print(f"   📈 {rec['rationale']}")
+                        if rec['benefits']:
+                            print(f"   ✅ Benefits: {', '.join(rec['benefits'])}")
+                        if rec['challenges']:
+                            print(f"   ⚠️  Challenges: {', '.join(rec['challenges'])}")
+                        print()
+                    
+                    # Save detailed recommendations to file
+                    grouping_file = output_path / "metadata_grouping_recommendations.json"
+                    import json
+                    with open(grouping_file, 'w') as f:
+                        json.dump(grouping_recommendations, f, indent=2)
+                    print(f"💾 Detailed recommendations saved to: {grouping_file}")
+                    print()
+                else:
+                    print(f"   ℹ️  No strong metadata-based grouping strategies found")
+                    print(f"   📝 Consider individual assembly or similarity-based grouping")
+                    print()
             
             # Save recommendations
             save_recommendations(assembly_recommendation, output_path / "assembly_recommendations")
@@ -618,6 +657,7 @@ def run_analysis(args):
                 permanova_results=metadata_results_df if run_phase2 and 'metadata_results_df' in locals() and not metadata_results_df.empty else None,
                 assembly_recommendation=assembly_recommendation if run_phase3 else None,
                 kmer_data=kmer_data_dict,
+                grouping_recommendations=grouping_recommendations if run_phase3 and grouping_recommendations else None,
                 title=args.html_title,
                 sample_id_column=args.sample_id_column
             )
