@@ -1575,16 +1575,21 @@ class InteractiveReportGenerator:
                                 plot_df[default_color].nunique() <= 10)  # Treat <= 10 unique values as categorical
                 
                 if is_categorical:
-                    # For categorical data, convert to numeric codes and use discrete colors
-                    color_data = pd.Categorical(plot_df[default_color]).codes
-                    colorscale = 'Set3'  # Discrete colorscale for categories
+                    # For categorical data, use discrete color mapping
+                    import plotly.colors as pc
+                    categories = plot_df[default_color].unique()
+                    color_discrete_map = {cat: pc.qualitative.Set3[i % len(pc.qualitative.Set3)] 
+                                        for i, cat in enumerate(categories)}
+                    color_data = [color_discrete_map[val] for val in plot_df[default_color]]
+                    colorscale = None
+                    colorbar = None
+                    showscale = False  # Don't show colorbar for categorical
                 else:
-                    # For numeric data, use as-is with continuous colorscale
+                    # For numeric data, use continuous colorscale
                     color_data = plot_df[default_color].tolist()
-                    colorscale = 'viridis'  # Continuous colorscale for numeric
-                
-                colorbar = dict(title=default_color.replace('_', ' ').title())
-                showscale = True
+                    colorscale = 'viridis'
+                    colorbar = dict(title=default_color.replace('_', ' ').title())
+                    showscale = True
             else:
                 color_data = 'blue'
                 colorscale = None
@@ -1644,23 +1649,32 @@ class InteractiveReportGenerator:
                                 plot_df[col].nunique() <= 10)  # Treat <= 10 unique values as categorical
                 
                 if is_categorical:
-                    # For categorical data, convert to numeric codes and use discrete colors
-                    color_data = pd.Categorical(plot_df[col]).codes.tolist()
-                    colorscale = "Set3"  # Discrete colorscale for categories
+                    # For categorical data, use discrete color mapping
+                    import plotly.colors as pc
+                    categories = plot_df[col].unique()
+                    color_discrete_map = {cat: pc.qualitative.Set3[i % len(pc.qualitative.Set3)] 
+                                        for i, cat in enumerate(categories)}
+                    color_data = [color_discrete_map[val] for val in plot_df[col]]
+                    colorscale = None
+                    showscale_setting = False
                 else:
-                    # For numeric data, use as-is with continuous colorscale
+                    # For numeric data, use continuous colorscale
                     color_data = plot_df[col].tolist()
-                    colorscale = "viridis"  # Continuous colorscale for numeric
+                    colorscale = "viridis"
+                    showscale_setting = True
+                
+                restyle_args = {
+                    "marker.color": [color_data] * len(projections),
+                    "marker.colorbar.title.text": col.replace('_', ' ').title(),
+                    "marker.colorscale": colorscale,
+                    "marker.showscale": showscale_setting
+                }
                 
                 color_buttons.append(
                     dict(
                         label=col.replace('_', ' ').title(),
                         method="restyle",
-                        args=[{
-                            "marker.color": [color_data] * len(projections),
-                            "marker.colorbar.title.text": col.replace('_', ' ').title(),
-                            "marker.colorscale": colorscale
-                        }]
+                        args=[restyle_args]
                     )
                 )
             
