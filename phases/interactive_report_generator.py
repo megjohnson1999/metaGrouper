@@ -1489,9 +1489,14 @@ class InteractiveReportGenerator:
                         # Re-merge with transformed names
                         plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
                         
-                        # Check success
-                        new_matches = plot_df[first_metadata_col].notna().sum()
-                        print(f"✅ After transformation: {new_matches}/{len(plot_df)} samples matched!")
+                        # Check success - recalculate metadata columns after transformation
+                        updated_metadata_cols = [col for col in plot_df.columns if col not in ['sample_id'] and not col.endswith(('_x', '_y'))]
+                        if updated_metadata_cols:
+                            updated_first_col = updated_metadata_cols[0]
+                            new_matches = plot_df[updated_first_col].notna().sum()
+                            print(f"✅ After transformation: {new_matches}/{len(plot_df)} samples matched!")
+                        else:
+                            print(f"⚠️ No metadata columns available after transformation")
                     else:
                         print(f"❌ Smart matching failed - no suitable transformations found")
                         print(f"🔍 Name format analysis:")
