@@ -153,6 +153,16 @@ class MetadataAnalyzer:
 
         # Align metadata with sample names
         self.metadata = self.metadata.set_index(sample_id_column)
+        
+        # Check for duplicate sample IDs and handle them
+        if self.metadata.index.duplicated().any():
+            duplicates = self.metadata.index[self.metadata.index.duplicated(keep=False)]
+            logging.warning(f"Found {len(duplicates)} duplicate sample IDs in metadata: {list(duplicates.unique())}")
+            
+            # Remove duplicates, keeping the first occurrence
+            self.metadata = self.metadata[~self.metadata.index.duplicated(keep='first')]
+            logging.info(f"Removed duplicates, kept first occurrence for each sample ID")
+        
         self.metadata = self.metadata.reindex(self.sample_names)
 
         logging.info(

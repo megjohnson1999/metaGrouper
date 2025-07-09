@@ -684,6 +684,15 @@ class InteractiveReportGenerator:
                     pca_df['sample_id'] = pca_df['sample_id'].astype(str)
                     metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
                     
+                    # Check for and handle duplicate sample IDs in metadata
+                    if metadata_for_merge['sample_id'].duplicated().any():
+                        duplicates = metadata_for_merge['sample_id'][metadata_for_merge['sample_id'].duplicated(keep=False)]
+                        logging.warning(f"Found {len(duplicates)} duplicate sample IDs in metadata for merge: {list(duplicates.unique())}")
+                        
+                        # Remove duplicates, keeping the first occurrence
+                        metadata_for_merge = metadata_for_merge[~metadata_for_merge['sample_id'].duplicated(keep='first')]
+                        logging.info(f"Removed duplicates for merge, kept first occurrence for each sample ID")
+                    
                     pca_df = pca_df.merge(metadata_for_merge, on='sample_id', how='left')
                     
                     # Check matching for fallback case too
@@ -1454,6 +1463,17 @@ class InteractiveReportGenerator:
             # Fix data type mismatch by converting both to strings
             plot_df['sample_id'] = plot_df['sample_id'].astype(str)
             metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
+            
+            # Check for and handle duplicate sample IDs in metadata
+            if metadata_for_merge['sample_id'].duplicated().any():
+                duplicates = metadata_for_merge['sample_id'][metadata_for_merge['sample_id'].duplicated(keep=False)]
+                print(f"⚠️  Found {len(duplicates)} duplicate sample IDs in metadata: {list(duplicates.unique())}")
+                logging.warning(f"Found {len(duplicates)} duplicate sample IDs in metadata for enhanced plot: {list(duplicates.unique())}")
+                
+                # Remove duplicates, keeping the first occurrence
+                metadata_for_merge = metadata_for_merge[~metadata_for_merge['sample_id'].duplicated(keep='first')]
+                print(f"✅ Removed duplicates, kept first occurrence for each sample ID")
+                logging.info(f"Removed duplicates for enhanced plot, kept first occurrence for each sample ID")
             
             print(f"✅ Converted both to strings for merging")
             logging.info(f"Sample names for merging: {sample_names[:3]}...")

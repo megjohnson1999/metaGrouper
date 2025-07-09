@@ -222,6 +222,16 @@ class InteractiveVisualizer:
             metadata_for_merge = self.metadata.reset_index()
             if 'sample_id' not in metadata_for_merge.columns:
                 metadata_for_merge['sample_id'] = metadata_for_merge.index
+            
+            # Check for and handle duplicate sample IDs in metadata
+            if metadata_for_merge['sample_id'].duplicated().any():
+                duplicates = metadata_for_merge['sample_id'][metadata_for_merge['sample_id'].duplicated(keep=False)]
+                logging.warning(f"Found {len(duplicates)} duplicate sample IDs in metadata for enhanced plot: {list(duplicates.unique())}")
+                
+                # Remove duplicates, keeping the first occurrence
+                metadata_for_merge = metadata_for_merge[~metadata_for_merge['sample_id'].duplicated(keep='first')]
+                logging.info(f"Removed duplicates for enhanced plot, kept first occurrence for each sample ID")
+            
             plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
         
         # Create the enhanced plot
@@ -713,6 +723,16 @@ class InteractiveVisualizer:
             metadata_for_merge = self.metadata.reset_index()
             if 'sample_id' not in metadata_for_merge.columns:
                 metadata_for_merge['sample_id'] = metadata_for_merge.index
+            
+            # Check for and handle duplicate sample IDs in metadata
+            if metadata_for_merge['sample_id'].duplicated().any():
+                duplicates = metadata_for_merge['sample_id'][metadata_for_merge['sample_id'].duplicated(keep=False)]
+                logging.warning(f"Found {len(duplicates)} duplicate sample IDs in metadata for enhanced plot: {list(duplicates.unique())}")
+                
+                # Remove duplicates, keeping the first occurrence
+                metadata_for_merge = metadata_for_merge[~metadata_for_merge['sample_id'].duplicated(keep='first')]
+                logging.info(f"Removed duplicates for enhanced plot, kept first occurrence for each sample ID")
+            
             plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
         
         # Create subplots
