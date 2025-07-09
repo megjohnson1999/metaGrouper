@@ -25,6 +25,145 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+def is_biological_id(column_name: str) -> bool:
+    """
+    Check if an ID column represents biological grouping rather than technical identifiers.
+    
+    Args:
+        column_name: Name of the metadata column
+        
+    Returns:
+        True if the column represents biological grouping, False if technical
+    """
+    biological_patterns = [
+        'PID', 'Patient', 'Subject', 'Participant', 'Individual',
+        'GEMM', 'Study', 'Cohort', 'Group', 'Batch', 'Site',
+        'Family', 'Twin', 'Sibling', 'Parent', 'Child'
+    ]
+    column_lower = column_name.lower()
+    return any(pattern.lower() in column_lower for pattern in biological_patterns)
+
+
+def filter_metadata_variables(
+    metadata: pd.DataFrame, 
+    auto_filter: bool = True,
+    exclude_variables: Optional[List[str]] = None,
+    include_variables: Optional[List[str]] = None,
+    max_unique_ratio: float = 0.5,
+    min_unique_count: int = 2,
+    max_missing_ratio: float = 0.2
+) -> Tuple[List[str], Dict[str, str]]:
+    """
+    Intelligently filter metadata variables to focus on biologically relevant columns.
+    
+    Args:
+        metadata: DataFrame with metadata
+        auto_filter: Whether to apply automatic filtering
+        exclude_variables: List of variables to explicitly exclude
+        include_variables: List of variables to explicitly include (overrides auto-filtering)
+        max_unique_ratio: Maximum ratio of unique values to total samples (0.5 = 50%)
+        min_unique_count: Minimum number of unique values required
+        max_missing_ratio: Maximum ratio of missing values allowed (0.2 = 20%)
+        
+    Returns:
+        Tuple of (filtered_variables, exclusion_reasons)
+    """
+    exclude_variables = exclude_variables or []
+    include_variables = include_variables or []
+    exclusion_reasons = {}
+    
+    # If specific variables are requested, use only those
+    if include_variables:
+        valid_vars = [var for var in include_variables if var in metadata.columns]
+        excluded_vars = [var for var in include_variables if var not in metadata.columns]
+        for var in excluded_vars:
+            exclusion_reasons[var] = "Variable not found in metadata"
+        return valid_vars, exclusion_reasons
+    
+    if not auto_filter:
+        # Return all columns except explicitly excluded ones
+        all_vars = [col for col in metadata.columns if col not in exclude_variables]
+        for var in exclude_variables:
+            if var in metadata.columns:
+                exclusion_reasons[var] = "Manually excluded"
+        return all_vars, exclusion_reasons
+    
+    # Auto-filtering logic
+    filtered_variables = []
+    
+    for column_name in metadata.columns:
+        # Skip if manually excluded
+        if column_name in exclude_variables:
+            exclusion_reasons[column_name] = "Manually excluded"
+            continue
+            
+        # Get column values
+        values = metadata[column_name].dropna()
+        
+        # Exact exclusions (technical/administrative columns)
+        technical_exclusions = [
+            'Unnamed: 0', 'Plate', 'Well', 'Name', 'Sample_ID'
+        ]
+        if column_name in technical_exclusions:
+            exclusion_reasons[column_name] = "Technical/administrative column"
+            continue
+            
+        # Pattern-based exclusions (but check biological whitelist first)
+        if (column_name.endswith('_ID') or 'Barcode' in column_name or 
+            'External' in column_name or 'Collaborator' in column_name):
+            if not is_biological_id(column_name):
+                exclusion_reasons[column_name] = "Technical identifier"
+                continue
+        
+        # Statistical filters
+        if len(values) == 0:
+            exclusion_reasons[column_name] = "No valid values"
+            continue
+            
+        unique_count = len(values.unique())
+        total_count = len(metadata)
+        
+        # Too few unique values (no variation)
+        if unique_count < min_unique_count:
+            exclusion_reasons[column_name] = f"Too few unique values ({unique_count})"
+            continue
+            
+        # Too many unique values (likely continuous ID or noise)
+        unique_ratio = unique_count / total_count
+        if unique_ratio > max_unique_ratio:
+            # Exception for biological IDs - they can have many unique values
+            if not is_biological_id(column_name):
+                exclusion_reasons[column_name] = f"Too many unique values ({unique_ratio:.1%})"
+                continue
+                
+        # Too many missing values
+        missing_ratio = (total_count - len(values)) / total_count
+        if missing_ratio > max_missing_ratio:
+            exclusion_reasons[column_name] = f"Too many missing values ({missing_ratio:.1%})"
+            continue
+            
+        # If we get here, include the variable
+        filtered_variables.append(column_name)
+    
+    # Prioritize biological variables by sorting
+    def biological_priority(var_name):
+        """Sort biological variables first."""
+        biological_keywords = [
+            'disease', 'diagnosis', 'status', 'group', 'case', 'control',
+            'sex', 'gender', 'age', 'delivery', 'birth', 'hla', 'genetic',
+            'country', 'location', 'site', 'time', 'month', 'year', 'onset'
+        ]
+        var_lower = var_name.lower()
+        bio_score = sum(1 for keyword in biological_keywords if keyword in var_lower)
+        return (-bio_score, var_name)  # Negative for descending order
+    
+    filtered_variables.sort(key=biological_priority)
+    
+    logging.info(f"Auto-filtered metadata: {len(filtered_variables)}/{len(metadata.columns)} variables retained")
+    
+    return filtered_variables, exclusion_reasons
+
+
 class PermanovaAnalyzer:
     """PERMANOVA (Permutational Multivariate Analysis of Variance) implementation."""
 
@@ -182,17 +321,130 @@ class MetadataAnalyzer:
                 warnings.warn(f"Group '{group_name}' has only {len(group_data)} samples. "
                              f"PERMANOVA requires ≥10 samples per group for reliable results.")
 
+    def generate_filtering_report(
+        self, 
+        exclusion_reasons: Dict[str, str], 
+        included_variables: List[str],
+        output_path: Optional[str] = None
+    ) -> str:
+        """Generate a detailed report of variable filtering decisions."""
+        report_lines = [
+            "# MetaGrouper Variable Filtering Report",
+            "",
+            f"**Analysis Date:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**Total Variables in Metadata:** {len(self.metadata.columns)}",
+            f"**Variables Included in Analysis:** {len(included_variables)}",
+            f"**Variables Excluded:** {len(exclusion_reasons)}",
+            "",
+            "## Included Variables (Biologically Relevant)",
+            ""
+        ]
+        
+        for var in included_variables:
+            if var in self.metadata.columns:
+                values = self.metadata[var].dropna()
+                unique_count = len(values.unique())
+                missing_count = len(self.metadata) - len(values)
+                
+                # Determine variable type
+                if pd.api.types.is_numeric_dtype(values):
+                    var_type = "numerical"
+                else:
+                    var_type = "categorical"
+                
+                report_lines.append(f"- **{var}** ({var_type}): {unique_count} unique values, {missing_count} missing")
+        
+        if exclusion_reasons:
+            report_lines.extend([
+                "",
+                "## Excluded Variables (Technical/Low Quality)",
+                ""
+            ])
+            
+            # Group exclusions by reason
+            exclusion_groups = {}
+            for var, reason in exclusion_reasons.items():
+                if reason not in exclusion_groups:
+                    exclusion_groups[reason] = []
+                exclusion_groups[reason].append(var)
+            
+            for reason, vars_list in exclusion_groups.items():
+                report_lines.append(f"### {reason}")
+                for var in vars_list:
+                    report_lines.append(f"- {var}")
+                report_lines.append("")
+        
+        report_lines.extend([
+            "## Recommendations",
+            "",
+            "- **High Priority Variables**: Focus on variables with biological significance (disease, demographics, genetics)",
+            "- **Patient Grouping**: Consider including patient/subject IDs (PID, GEMM) for assembly grouping",
+            "- **Temporal Analysis**: Include time-related variables (month, age) for longitudinal studies",
+            "- **Technical Variables**: Exclude lab processing variables (Plate, Well, Barcode) unless needed for batch correction",
+            ""
+        ])
+        
+        report_text = "\n".join(report_lines)
+        
+        if output_path:
+            with open(output_path, 'w') as f:
+                f.write(report_text)
+            logging.info(f"Variable filtering report saved to {output_path}")
+        
+        return report_text
+
     def analyze_variables(
-        self, variables: Optional[List[str]] = None, n_permutations: int = 999
+        self, 
+        variables: Optional[List[str]] = None, 
+        n_permutations: int = 999,
+        auto_filter: bool = False,
+        exclude_variables: Optional[List[str]] = None
     ) -> pd.DataFrame:
         """Analyze all or specified metadata variables using PERMANOVA."""
         if self.metadata is None:
             raise ValueError("Metadata not loaded. Call load_metadata() first.")
 
-        if variables is None:
-            variables = list(self.metadata.columns)
+        # Apply smart filtering if requested
+        exclusion_reasons = {}
+        if auto_filter or variables is None:
+            if variables is None:
+                # No variables specified - use auto-filtering
+                filtered_vars, exclusion_reasons = filter_metadata_variables(
+                    self.metadata, 
+                    auto_filter=True,
+                    exclude_variables=exclude_variables
+                )
+                variables = filtered_vars
+                
+                # Log filtering results
+                if exclusion_reasons:
+                    logging.info(f"Auto-filtering excluded {len(exclusion_reasons)} variables:")
+                    for var, reason in exclusion_reasons.items():
+                        logging.debug(f"  Excluded '{var}': {reason}")
+            else:
+                # Variables specified but auto-filtering requested - validate them
+                filtered_vars, exclusion_reasons = filter_metadata_variables(
+                    self.metadata,
+                    auto_filter=False,  # Don't auto-filter, just validate
+                    include_variables=variables,
+                    exclude_variables=exclude_variables
+                )
+                variables = filtered_vars
+        else:
+            # Use specified variables as-is
+            if exclude_variables:
+                excluded_vars = [v for v in variables if v in exclude_variables]
+                variables = [v for v in variables if v not in exclude_variables]
+                for var in excluded_vars:
+                    exclusion_reasons[var] = "Manually excluded"
 
         logging.info(f"Analyzing {len(variables)} metadata variables")
+        
+        # Store filtering info for later use
+        self.filtering_report_data = {
+            'exclusion_reasons': exclusion_reasons,
+            'included_variables': variables
+        }
 
         permanova = PermanovaAnalyzer(self.distance_matrix, self.sample_names)
         results = []

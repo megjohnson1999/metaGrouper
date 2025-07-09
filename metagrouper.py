@@ -226,6 +226,10 @@ Examples:
                        help="Column name for sample IDs in metadata (default: sample_id, common alternatives: Sample_ID, sample, accession, run_id)")
     parser.add_argument("--variables", nargs="+",
                        help="Specific metadata variables to analyze (default: all)")
+    parser.add_argument("--auto-filter-variables", action="store_true",
+                       help="Automatically filter metadata variables to focus on biologically relevant ones")
+    parser.add_argument("--exclude-variables", nargs="+",
+                       help="Metadata variables to exclude from analysis")
     parser.add_argument("--permutations", type=int, default=999,
                        help="Number of permutations for PERMANOVA (default: 999)")
     parser.add_argument("--cluster-range", nargs=2, type=int, default=[2, 8],
@@ -421,7 +425,10 @@ def run_analysis(args):
             
             # Analyze variables (PERMANOVA)
             metadata_results_df = meta_analyzer.analyze_variables(
-                variables=args.variables, n_permutations=args.permutations
+                variables=args.variables, 
+                n_permutations=args.permutations,
+                auto_filter=args.auto_filter_variables,
+                exclude_variables=args.exclude_variables
             )
             
             print(f"✅ Analyzed {len(metadata_results_df)} metadata variables")
@@ -475,6 +482,16 @@ def run_analysis(args):
             # Save metadata analysis results
             if not metadata_results_df.empty:
                 metadata_results_df.to_csv(output_path / "permanova_results.csv", index=False)
+            
+            # Save variable filtering report if filtering was applied
+            if hasattr(meta_analyzer, 'filtering_report_data'):
+                report_text = meta_analyzer.generate_filtering_report(
+                    meta_analyzer.filtering_report_data['exclusion_reasons'],
+                    meta_analyzer.filtering_report_data['included_variables'],
+                    output_path / "variable_filtering_report.md"
+                )
+                if args.auto_filter_variables:
+                    print(f"📋 Variable filtering report saved to: variable_filtering_report.md")
             
             print(f"✅ Phase 2 analysis completed successfully")
             
