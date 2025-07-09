@@ -5,7 +5,6 @@ Interactive HTML Report Generator for MetaGrouper
 Creates comprehensive, publication-ready interactive reports with:
 - Dynamic visualizations
 - Explained assembly strategies
-- Interactive threshold exploration
 - Professional layout with narrative explanations
 """
 
@@ -88,227 +87,11 @@ class InteractiveReportGenerator:
         
         logging.info(f"Added analysis data for {len(sample_names)} samples")
     
-    def create_interactive_threshold_explorer(self) -> str:
-        """Create an interactive threshold exploration tool with detailed explanations."""
-        
-        if 'assembly_recommendation' not in self.report_data:
-            return """
-            <div class="threshold-explanation">
-                <p><strong>⚠️ No assembly recommendation data available</strong></p>
-                <p>The threshold explorer requires assembly recommendation data to show how different similarity thresholds would affect your sample grouping decisions.</p>
-            </div>
-            """
-        
-        recommendation = self.report_data['assembly_recommendation']
-        distance_matrix = self.report_data['distance_matrix']
-        sample_names = self.report_data['sample_names']
-        
-        # Create threshold exploration plot
-        thresholds = np.arange(0.1, 0.8, 0.05)
-        threshold_data = []
-        
-        for threshold in thresholds:
-            # Simulate grouping at different thresholds
-            n_groups, grouped_samples = self._simulate_grouping(distance_matrix, threshold)
-            threshold_data.append({
-                'threshold': threshold,
-                'n_groups': n_groups,
-                'grouped_samples': grouped_samples,
-                'individual_samples': len(sample_names) - grouped_samples
-            })
-        
-        df = pd.DataFrame(threshold_data)
-        
-        # Create the interactive plot
-        fig = make_subplots(
-            rows=2, cols=1,
-            subplot_titles=('Number of Groups vs Threshold', 'Grouping Strategy Distribution'),
-            specs=[[{"secondary_y": False}], [{"type": "bar"}]]
-        )
-        
-        # Line plot for groups
-        fig.add_trace(
-            go.Scatter(
-                x=df['threshold'],
-                y=df['n_groups'],
-                mode='lines+markers',
-                name='Number of Groups',
-                line=dict(width=3, color='blue'),
-                marker=dict(size=8)
-            ),
-            row=1, col=1
-        )
-        
-        # Bar plot for strategy distribution
-        fig.add_trace(
-            go.Bar(
-                x=df['threshold'],
-                y=df['grouped_samples'],
-                name='Grouped Samples',
-                marker_color='lightblue'
-            ),
-            row=2, col=1
-        )
-        
-        fig.add_trace(
-            go.Bar(
-                x=df['threshold'],
-                y=df['individual_samples'],
-                name='Individual Samples',
-                marker_color='orange'
-            ),
-            row=2, col=1
-        )
-        
-        # Add current threshold line
-        if hasattr(recommendation, 'groups') and recommendation.groups:
-            current_threshold = 0.45  # Current default
-            fig.add_vline(
-                x=current_threshold,
-                line_dash="dash",
-                line_color="red",
-                annotation_text=f"Current: {current_threshold}",
-                row=1, col=1
-            )
-            fig.add_vline(
-                x=current_threshold,
-                line_dash="dash", 
-                line_color="red",
-                row=2, col=1
-            )
-        
-        fig.update_layout(
-            title="Interactive Threshold Explorer",
-            height=600,
-            template='plotly_white',
-            showlegend=True
-        )
-        
-        fig.update_xaxes(title_text="Similarity Threshold", row=1, col=1)
-        fig.update_yaxes(title_text="Number of Groups", row=1, col=1)
-        fig.update_xaxes(title_text="Similarity Threshold", row=2, col=1)
-        fig.update_yaxes(title_text="Number of Samples", row=2, col=1)
-        
-        # Convert to HTML
-        plot_html = fig.to_html(include_plotlyjs='cdn', div_id="threshold-explorer")
-        
-        # Add comprehensive explanation
-        explanation_html = f"""
-        <div class="threshold-explanation">
-            <h4>🎯 What is the Threshold Explorer?</h4>
-            <p>The <strong>similarity threshold</strong> determines how similar samples must be to get grouped together for co-assembly. 
-            This tool shows you how different threshold values would affect your grouping decisions.</p>
-            
-            <div class="threshold-guide">
-                <h5>📊 How to Read the Plots:</h5>
-                <div class="guide-section">
-                    <h6>📈 Top Plot - "Number of Groups vs Threshold":</h6>
-                    <ul>
-                        <li><strong>X-axis:</strong> Similarity threshold values (0.1 = very strict, 0.8 = very permissive)</li>
-                        <li><strong>Y-axis:</strong> Number of assembly groups that would be formed</li>
-                        <li><strong>Line trend:</strong> Shows how group count changes with threshold</li>
-                        <li><strong>Red dashed line:</strong> Your current threshold ({0.45:.2f})</li>
-                    </ul>
-                </div>
-                
-                <div class="guide-section">
-                    <h6>📊 Bottom Plot - "Grouping Strategy Distribution":</h6>
-                    <ul>
-                        <li><strong>Blue bars:</strong> Samples that would be <strong>grouped together</strong> for co-assembly</li>
-                        <li><strong>Orange bars:</strong> Samples that would be assembled <strong>individually</strong></li>
-                        <li><strong>Height:</strong> Number of samples in each category</li>
-                    </ul>
-                </div>
-            </div>
-            
-            <div class="threshold-interpretation">
-                <h5>🔍 How to Interpret the Results:</h5>
-                <div class="interpretation-grid">
-                    <div class="interpretation-card">
-                        <h6>🔒 Lower Thresholds (0.1-0.3)</h6>
-                        <p><strong>More Conservative Grouping:</strong></p>
-                        <ul>
-                            <li>Only very similar samples get grouped</li>
-                            <li>More individual assemblies</li>
-                            <li>Lower contamination risk</li>
-                            <li>May miss beneficial co-assemblies</li>
-                        </ul>
-                    </div>
-                    
-                    <div class="interpretation-card">
-                        <h6>🔓 Higher Thresholds (0.5-0.8)</h6>
-                        <p><strong>More Permissive Grouping:</strong></p>
-                        <ul>
-                            <li>Even somewhat different samples get grouped</li>
-                            <li>More co-assemblies, fewer individual</li>
-                            <li>Better coverage and contiguity</li>
-                            <li>Higher contamination risk</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="threshold-recommendations">
-                <h5>💡 What to Look For:</h5>
-                <ul>
-                    <li><strong>Steep changes:</strong> Small threshold changes that dramatically affect grouping</li>
-                    <li><strong>Plateau regions:</strong> Stable grouping across threshold ranges</li>
-                    <li><strong>Balance point:</strong> Threshold that gives reasonable group sizes (2-10 samples per group)</li>
-                    <li><strong>Your data:</strong> Consider your research goals - do you prioritize coverage or purity?</li>
-                </ul>
-            </div>
-            
-            <div class="threshold-examples">
-                <h5>🎯 Example Decision Making:</h5>
-                <div class="example-scenarios">
-                    <div class="scenario">
-                        <strong>Scenario 1:</strong> You see mostly orange bars (individual assemblies)
-                        <br>➡️ <em>Consider increasing threshold to enable more co-assemblies</em>
-                    </div>
-                    <div class="scenario">
-                        <strong>Scenario 2:</strong> You see very large blue bars (big groups)
-                        <br>➡️ <em>Consider decreasing threshold to reduce contamination risk</em>
-                    </div>
-                    <div class="scenario">
-                        <strong>Scenario 3:</strong> Sharp drop in groups near your threshold
-                        <br>➡️ <em>Small changes could dramatically affect results - be cautious</em>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        {plot_html}
-        """
-        
-        return explanation_html
-    
-    def _simulate_grouping(self, distance_matrix: np.ndarray, threshold: float) -> Tuple[int, int]:
-        """Simulate grouping at a given threshold."""
-        # Simple grouping simulation based on distance threshold
-        # This is a simplified version - in practice would use the actual grouping algorithm
-        
-        similarities = 1 - distance_matrix
-        np.fill_diagonal(similarities, 0)  # Remove self-similarities
-        
-        # Count pairs above threshold
-        above_threshold = np.sum(similarities > threshold, axis=1)
-        
-        # Estimate number of groups (simplified)
-        n_samples = len(distance_matrix)
-        if np.max(above_threshold) == 0:
-            return 0, 0  # No groups, all individual
-        
-        # Rough estimate of groups and grouped samples
-        avg_connections = np.mean(above_threshold[above_threshold > 0])
-        estimated_groups = max(1, int(n_samples / (avg_connections + 1)))
-        grouped_samples = np.sum(above_threshold > 0)
-        
-        return estimated_groups, grouped_samples
     
     def create_assembly_strategy_explanation(self) -> str:
         """Create an interactive explanation of the assembly strategy."""
         
-        if 'assembly_recommendation' not in self.report_data:
+        if 'assembly_recommendation' not in self.report_data or self.report_data['assembly_recommendation'] is None:
             return "<p>No assembly recommendation available</p>"
         
         recommendation = self.report_data['assembly_recommendation']
@@ -643,7 +426,6 @@ class InteractiveReportGenerator:
         
         # Generate all interactive components
         visualizations = self._create_all_visualizations()
-        threshold_explorer = self.create_interactive_threshold_explorer()
         strategy_explanation = self.create_assembly_strategy_explanation()
         permanova_section = self.create_permanova_section()
         summary_stats = self._create_summary_statistics()
@@ -658,7 +440,6 @@ class InteractiveReportGenerator:
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             summary_stats=summary_stats,
             visualizations=visualizations,
-            threshold_explorer=threshold_explorer,
             strategy_explanation=strategy_explanation,
             permanova_section=permanova_section,
             include_raw_data=include_raw_data
@@ -921,7 +702,7 @@ class InteractiveReportGenerator:
             })
         
         # Assembly recommendation stats
-        if 'assembly_recommendation' in self.report_data:
+        if 'assembly_recommendation' in self.report_data and self.report_data['assembly_recommendation'] is not None:
             rec = self.report_data['assembly_recommendation']
             stats.update({
                 'strategy': rec.strategy,
@@ -1104,131 +885,6 @@ class InteractiveReportGenerator:
             justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
-        }
-        
-        /* Threshold Explorer Styling */
-        .threshold-explanation {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            border: 1px solid #e9ecef;
-        }
-        
-        .threshold-guide {
-            margin: 20px 0;
-        }
-        
-        .guide-section {
-            margin: 15px 0;
-            padding: 15px;
-            background: white;
-            border-radius: 6px;
-            border-left: 4px solid #667eea;
-        }
-        
-        .guide-section h6 {
-            color: #4a5568;
-            margin-bottom: 10px;
-        }
-        
-        .guide-section ul {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-        
-        .guide-section li {
-            margin: 5px 0;
-            line-height: 1.5;
-        }
-        
-        .threshold-interpretation {
-            margin: 20px 0;
-        }
-        
-        .interpretation-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-top: 15px;
-        }
-        
-        .interpretation-card {
-            background: white;
-            border-radius: 8px;
-            padding: 15px;
-            border: 1px solid #dee2e6;
-            border-left: 4px solid #28a745;
-        }
-        
-        .interpretation-card h6 {
-            color: #28a745;
-            margin-bottom: 10px;
-        }
-        
-        .interpretation-card:last-child {
-            border-left-color: #ffc107;
-        }
-        
-        .interpretation-card:last-child h6 {
-            color: #ffc107;
-        }
-        
-        .threshold-recommendations {
-            margin: 20px 0;
-            padding: 15px;
-            background: #fff3cd;
-            border-radius: 6px;
-            border: 1px solid #ffeaa7;
-        }
-        
-        .threshold-recommendations h5 {
-            color: #856404;
-            margin-bottom: 10px;
-        }
-        
-        .threshold-recommendations ul {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-        
-        .threshold-recommendations li {
-            margin: 8px 0;
-            line-height: 1.5;
-        }
-        
-        .threshold-examples {
-            margin: 20px 0;
-            padding: 15px;
-            background: #d1ecf1;
-            border-radius: 6px;
-            border: 1px solid #bee5eb;
-        }
-        
-        .threshold-examples h5 {
-            color: #0c5460;
-            margin-bottom: 10px;
-        }
-        
-        .example-scenarios {
-            margin-top: 15px;
-        }
-        
-        .scenario {
-            margin: 10px 0;
-            padding: 10px;
-            background: white;
-            border-radius: 4px;
-            border-left: 3px solid #17a2b8;
-        }
-        
-        .scenario strong {
-            color: #17a2b8;
-        }
-        
-        .scenario em {
-            color: #6c757d;
-            font-style: italic;
         }
         
         .confidence-badge {
@@ -1654,13 +1310,6 @@ class InteractiveReportGenerator:
             <h2>🧬 Metadata Analysis (PERMANOVA)</h2>
             <p>Statistical analysis of which metadata variables significantly explain differences in sample composition.</p>
             {{ permanova_section|safe }}
-        </div>
-        
-        <!-- Threshold Explorer -->
-        <div class="section">
-            <h2>🎚️ Threshold Explorer</h2>
-            <p>Explore how different similarity thresholds affect sample grouping decisions. This interactive tool helps you understand and optimize your assembly strategy.</p>
-            {{ threshold_explorer|safe }}
         </div>
         
         <!-- Assembly Strategy Explanation -->

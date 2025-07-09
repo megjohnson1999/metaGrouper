@@ -97,7 +97,7 @@ MetaGrouper has been updated with research-based similarity thresholds:
 ### Interactive HTML Reports (New!)
 - Comprehensive interactive reports with dynamic visualizations
 - Explained assembly strategies with decision trees and confidence metrics
-- Interactive threshold exploration with real-time grouping updates
+- Real-time interactive visualizations
 - Professional publication-ready layout with export capabilities
 - Built using Plotly for responsive, interactive charts
 

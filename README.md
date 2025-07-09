@@ -147,7 +147,6 @@ NovaSeq_N983_I13382_39896_Sample_03,P002,Control,Male,12,C-section
 - `interactive_report.html` - **Comprehensive interactive analysis**
   - Dynamic visualizations with zoom/pan/hover
   - Assembly strategy explanations
-  - Threshold exploration tools
   - Professional publication-ready layout
 
 ## Examples
