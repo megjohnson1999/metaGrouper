@@ -419,19 +419,24 @@ def run_analysis(args):
             meta_analyzer = MetadataAnalyzer(distance_matrix, sample_names)
             meta_analyzer.load_metadata(args.metadata, args.sample_id_column)
             
-            # Analyze variables
+            # Analyze variables (PERMANOVA)
             metadata_results_df = meta_analyzer.analyze_variables(
                 variables=args.variables, n_permutations=args.permutations
             )
             
             print(f"✅ Analyzed {len(metadata_results_df)} metadata variables")
             
-            # Identify clusters
-            cluster_results = meta_analyzer.identify_clusters(
-                n_clusters_range=tuple(args.cluster_range)
-            )
-            
-            print(f"✅ Clustering analysis complete")
+            # Identify clusters (separate try-catch to not lose PERMANOVA results)
+            cluster_results = {}
+            try:
+                cluster_results = meta_analyzer.identify_clusters(
+                    n_clusters_range=tuple(args.cluster_range)
+                )
+                print(f"✅ Clustering analysis complete")
+            except Exception as cluster_error:
+                logging.warning(f"Clustering analysis failed: {cluster_error}")
+                print(f"⚠️  Clustering analysis failed: {cluster_error}")
+                print(f"✅ PERMANOVA results still available")
             
             # Generate Phase 2 visualizations
             meta_visualizer = MetadataVisualizer(sample_names, meta_analyzer.metadata)
