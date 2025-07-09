@@ -59,7 +59,8 @@ class InteractiveReportGenerator:
                          assembly_recommendation: Optional[Any] = None,
                          kmer_data: Optional[Dict] = None,
                          grouping_recommendations: Optional[List[Dict]] = None,
-                         sample_id_column: str = "sample_id"):
+                         sample_id_column: str = "sample_id",
+                         analyzed_variables: Optional[List[str]] = None):
         """
         Add analysis data to the report.
         
@@ -71,6 +72,8 @@ class InteractiveReportGenerator:
             assembly_recommendation: Assembly strategy recommendation
             kmer_data: K-mer analysis data
             grouping_recommendations: Intelligent metadata grouping recommendations
+            sample_id_column: Column name for sample IDs in metadata
+            analyzed_variables: Optional list of specific variables to include in plot dropdowns
         """
         self.report_data.update({
             'distance_matrix': distance_matrix,
@@ -81,6 +84,7 @@ class InteractiveReportGenerator:
             'kmer_data': kmer_data,
             'grouping_recommendations': grouping_recommendations,
             'sample_id_column': sample_id_column,
+            'analyzed_variables': analyzed_variables,
             'timestamp': datetime.now().isoformat(),
             'n_samples': len(sample_names)
         })
@@ -589,12 +593,24 @@ class InteractiveReportGenerator:
                 # Get metadata columns for coloring options
                 metadata_cols = []
                 if self.report_data.get('metadata') is not None:
-                    for col in pca_df.columns:
-                        if col not in ['sample_id', 'MDS1', 'MDS2']:
-                            n_unique = pca_df[col].nunique()
-                            non_null = pca_df[col].notna().sum()
-                            if n_unique > 1 and n_unique <= 20 and non_null > 0:
-                                metadata_cols.append(col)
+                    analyzed_variables = self.report_data.get('analyzed_variables')
+                    
+                    if analyzed_variables:
+                        # Use user-specified variables from --variables flag
+                        for col in analyzed_variables:
+                            if col in pca_df.columns and col not in ['sample_id', 'MDS1', 'MDS2']:
+                                n_unique = pca_df[col].nunique()
+                                non_null = pca_df[col].notna().sum()
+                                if n_unique > 1 and non_null > 0:  # Relaxed criteria for user-specified variables
+                                    metadata_cols.append(col)
+                    else:
+                        # Fallback to auto-detection when no variables specified
+                        for col in pca_df.columns:
+                            if col not in ['sample_id', 'MDS1', 'MDS2']:
+                                n_unique = pca_df[col].nunique()
+                                non_null = pca_df[col].notna().sum()
+                                if n_unique > 1 and n_unique <= 20 and non_null > 0:
+                                    metadata_cols.append(col)
                 
                 # Create base plot with first metadata variable as default color
                 color_col = metadata_cols[0] if metadata_cols else None
@@ -1840,7 +1856,8 @@ def create_interactive_report(distance_matrix: np.ndarray,
                             kmer_data: Optional[Dict] = None,
                             grouping_recommendations: Optional[List[Dict]] = None,
                             title: str = "MetaGrouper Analysis Report",
-                            sample_id_column: str = "sample_id") -> str:
+                            sample_id_column: str = "sample_id",
+                            analyzed_variables: Optional[List[str]] = None) -> str:
     """
     Convenience function to create a comprehensive interactive report.
     
@@ -1852,7 +1869,10 @@ def create_interactive_report(distance_matrix: np.ndarray,
         permanova_results: Optional PERMANOVA results
         assembly_recommendation: Optional assembly recommendation
         kmer_data: Optional k-mer analysis data
+        grouping_recommendations: Optional metadata grouping recommendations
         title: Report title
+        sample_id_column: Column name for sample IDs in metadata
+        analyzed_variables: Optional list of specific variables to include in plot dropdowns
         
     Returns:
         Path to generated HTML report
@@ -1868,7 +1888,8 @@ def create_interactive_report(distance_matrix: np.ndarray,
         assembly_recommendation=assembly_recommendation,
         kmer_data=kmer_data,
         grouping_recommendations=grouping_recommendations,
-        sample_id_column=sample_id_column
+        sample_id_column=sample_id_column,
+        analyzed_variables=analyzed_variables
     )
     
     return generator.create_comprehensive_report()

@@ -716,7 +716,8 @@ def run_analysis(args):
                 kmer_data=kmer_data_dict,
                 grouping_recommendations=grouping_recommendations if run_phase3 and grouping_recommendations else None,
                 title=args.html_title,
-                sample_id_column=args.sample_id_column
+                sample_id_column=args.sample_id_column,
+                analyzed_variables=args.variables
             )
             
             print(f"✅ Comprehensive interactive report generated!")

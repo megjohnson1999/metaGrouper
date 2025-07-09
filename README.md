@@ -1,5 +1,9 @@
 # MetaGrouper
 
+<p align="center">
+  <img src="metagrouper_logo.png" alt="MetaGrouper Logo" width="300"/>
+</p>
+
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -242,16 +246,6 @@ The `variable_filtering_report.md` explains which variables were included/exclud
 - 📚 **Documentation**: Check `RECOMMENDED_VARIABLES.md` for variable selection guidance
 - 🐛 **Issues**: [GitHub Issues](https://github.com/megjohnson1999/metaGrouper/issues)
 - 💬 **Discussions**: [GitHub Discussions](https://github.com/megjohnson1999/metaGrouper/discussions)
-
-## Citation
-
-If you use MetaGrouper in your research, please cite:
-
-```
-MetaGrouper: K-mer-based analysis for optimal metagenomic assembly grouping
-[Authors, Year, Journal]
-DOI: [DOI]
-```
 
 ## License
 
