@@ -316,9 +316,6 @@ class InteractiveReportGenerator:
         # Create decision tree visualization
         decision_tree_html = self._create_decision_tree(recommendation)
         
-        # Create strategy comparison table
-        strategy_table = self._create_strategy_comparison_table(recommendation)
-        
         # Create group details
         group_details = self._create_group_details(recommendation)
         
@@ -340,11 +337,6 @@ class InteractiveReportGenerator:
             <div class="decision-process">
                 <h4>📊 Decision Process</h4>
                 {decision_tree_html}
-            </div>
-            
-            <div class="strategy-comparison">
-                <h4>⚖️ Strategy Comparison</h4>
-                {strategy_table}
             </div>
             
             <div class="group-details">
@@ -402,72 +394,6 @@ class InteractiveReportGenerator:
         
         return tree_html
     
-    def _create_strategy_comparison_table(self, recommendation) -> str:
-        """Create a comparison table of different assembly strategies."""
-        
-        n_samples = self.report_data['n_samples']
-        
-        strategies = [
-            {
-                'strategy': 'Individual',
-                'assemblies': n_samples,
-                'contamination_risk': 'Very Low',
-                'coverage': 'Low',
-                'computational_cost': 'High',
-                'best_for': 'Highly diverse samples'
-            },
-            {
-                'strategy': 'Grouped', 
-                'assemblies': len(recommendation.groups) if recommendation.groups else 0,
-                'contamination_risk': 'Medium',
-                'coverage': 'High',
-                'computational_cost': 'Medium',
-                'best_for': 'Related samples with clear groupings'
-            },
-            {
-                'strategy': 'Global',
-                'assemblies': 1,
-                'contamination_risk': 'High',
-                'coverage': 'Very High',
-                'computational_cost': 'Low',
-                'best_for': 'Very similar samples'
-            }
-        ]
-        
-        table_html = """
-        <table class="strategy-table">
-            <thead>
-                <tr>
-                    <th>Strategy</th>
-                    <th># Assemblies</th>
-                    <th>Contamination Risk</th>
-                    <th>Coverage</th>
-                    <th>Computational Cost</th>
-                    <th>Best For</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
-        
-        for strategy in strategies:
-            row_class = 'recommended' if strategy['strategy'].lower() == recommendation.strategy.lower() else ''
-            table_html += f"""
-                <tr class="{row_class}">
-                    <td><strong>{strategy['strategy']}</strong></td>
-                    <td>{strategy['assemblies']}</td>
-                    <td>{strategy['contamination_risk']}</td>
-                    <td>{strategy['coverage']}</td>
-                    <td>{strategy['computational_cost']}</td>
-                    <td>{strategy['best_for']}</td>
-                </tr>
-            """
-        
-        table_html += """
-            </tbody>
-        </table>
-        """
-        
-        return table_html
     
     def _create_group_details(self, recommendation) -> str:
         """Create detailed information about each assembly group."""
@@ -528,6 +454,181 @@ class InteractiveReportGenerator:
         
         return details_html
     
+    def create_permanova_section(self) -> str:
+        """Create PERMANOVA analysis section for the report."""
+        
+        if 'permanova_results' not in self.report_data or self.report_data['permanova_results'] is None:
+            return """
+            <div class="permanova-explanation">
+                <p><strong>⚠️ No PERMANOVA results available</strong></p>
+                <p>PERMANOVA (Permutational Multivariate Analysis of Variance) analysis was not performed or no results were generated. This analysis helps identify which metadata variables significantly explain differences in sample composition.</p>
+            </div>
+            """
+        
+        permanova_df = self.report_data['permanova_results']
+        
+        if permanova_df.empty:
+            return """
+            <div class="permanova-explanation">
+                <p><strong>⚠️ No significant PERMANOVA results found</strong></p>
+                <p>None of the metadata variables showed significant associations with sample composition differences.</p>
+            </div>
+            """
+        
+        # Create PERMANOVA results visualization
+        permanova_html = f"""
+        <div class="permanova-section">
+            <div class="permanova-explanation">
+                <h4>📊 What is PERMANOVA?</h4>
+                <p><strong>PERMANOVA</strong> (Permutational Multivariate Analysis of Variance) tests which metadata variables significantly explain differences in sample composition. Higher R² values indicate variables that better explain sample groupings.</p>
+                
+                <div class="permanova-guide">
+                    <div class="guide-item">
+                        <strong>R² (Effect Size):</strong> Proportion of variation explained (higher = more important)
+                    </div>
+                    <div class="guide-item">
+                        <strong>p-value:</strong> Statistical significance (< 0.05 = significant)
+                    </div>
+                    <div class="guide-item">
+                        <strong>Significance:</strong> *** p<0.001, ** p<0.01, * p<0.05, . p<0.1
+                    </div>
+                </div>
+            </div>
+            
+            <div class="permanova-results">
+                <h4>🎯 Variable Importance Rankings</h4>
+                <div class="variables-container">
+        """
+        
+        # Sort by R-squared (most important first)
+        sorted_results = permanova_df.dropna(subset=['r_squared']).sort_values('r_squared', ascending=False)
+        
+        for _, row in sorted_results.iterrows():
+            # Determine significance level
+            p_val = row['p_value']
+            if p_val < 0.001:
+                significance = "***"
+                sig_class = "highly-significant"
+            elif p_val < 0.01:
+                significance = "**" 
+                sig_class = "very-significant"
+            elif p_val < 0.05:
+                significance = "*"
+                sig_class = "significant"
+            elif p_val < 0.1:
+                significance = "."
+                sig_class = "marginally-significant"
+            else:
+                significance = ""
+                sig_class = "not-significant"
+            
+            # Create progress bar for R-squared
+            r_squared_percent = row['r_squared'] * 100
+            
+            permanova_html += f"""
+                <div class="variable-card {sig_class}">
+                    <div class="variable-header">
+                        <h5>{row['variable']}</h5>
+                        <div class="significance-badge {sig_class}">{significance if significance else 'ns'}</div>
+                    </div>
+                    
+                    <div class="variable-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">R² (Effect Size):</span>
+                            <div class="r-squared-bar">
+                                <div class="r-squared-fill {sig_class}" style="width: {r_squared_percent:.1f}%"></div>
+                                <span class="r-squared-value">{row['r_squared']:.3f} ({r_squared_percent:.1f}%)</span>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-grid">
+                            <div class="stat-item">
+                                <span class="stat-label">p-value:</span>
+                                <span class="stat-value">{row['p_value']:.4f}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Type:</span>
+                                <span class="stat-value">{row['variable_type']}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Valid samples:</span>
+                                <span class="stat-value">{row['n_samples']}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Groups:</span>
+                                <span class="stat-value">{row['n_groups']}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="variable-interpretation">
+                        {self._get_permanova_interpretation(row)}
+                    </div>
+                </div>
+            """
+        
+        permanova_html += """
+                </div>
+            </div>
+            
+            <div class="permanova-recommendations">
+                <h4>💡 Recommendations</h4>
+        """
+        
+        # Add recommendations based on top variables
+        if not sorted_results.empty:
+            top_var = sorted_results.iloc[0]
+            if top_var['p_value'] < 0.05:
+                permanova_html += f"""
+                    <div class="recommendation-item significant">
+                        <strong>🎯 Primary grouping variable:</strong> <em>{top_var['variable']}</em> explains {top_var['r_squared']:.1%} of sample composition differences (p = {top_var['p_value']:.4f}).
+                        <br><strong>Recommendation:</strong> Consider grouping samples by this variable for co-assembly.
+                    </div>
+                """
+            else:
+                permanova_html += """
+                    <div class="recommendation-item not-significant">
+                        <strong>⚠️ No strong metadata associations found.</strong>
+                        <br><strong>Recommendation:</strong> Consider individual sample assembly or use similarity-based grouping instead.
+                    </div>
+                """
+        
+        permanova_html += """
+            </div>
+        </div>
+        """
+        
+        return permanova_html
+    
+    def _get_permanova_interpretation(self, row) -> str:
+        """Generate interpretation text for a PERMANOVA result."""
+        
+        r_squared = row['r_squared']
+        p_value = row['p_value']
+        variable = row['variable']
+        
+        # Effect size interpretation
+        if r_squared >= 0.3:
+            effect_size = "large effect"
+        elif r_squared >= 0.1:
+            effect_size = "medium effect" 
+        elif r_squared >= 0.05:
+            effect_size = "small effect"
+        else:
+            effect_size = "very small effect"
+            
+        # Significance interpretation
+        if p_value < 0.05:
+            significance_text = "statistically significant"
+            action = f"Strong evidence that {variable} influences sample composition."
+        else:
+            significance_text = "not statistically significant"
+            action = f"Insufficient evidence that {variable} influences sample composition."
+            
+        return f"""
+        <p><strong>Interpretation:</strong> This variable has a <em>{effect_size}</em> on sample composition and is <em>{significance_text}</em>. {action}</p>
+        """
+    
     def create_comprehensive_report(self, include_raw_data: bool = False) -> str:
         """
         Create the comprehensive interactive HTML report.
@@ -544,6 +645,7 @@ class InteractiveReportGenerator:
         visualizations = self._create_all_visualizations()
         threshold_explorer = self.create_interactive_threshold_explorer()
         strategy_explanation = self.create_assembly_strategy_explanation()
+        permanova_section = self.create_permanova_section()
         summary_stats = self._create_summary_statistics()
         
         # Create the HTML template
@@ -558,6 +660,7 @@ class InteractiveReportGenerator:
             visualizations=visualizations,
             threshold_explorer=threshold_explorer,
             strategy_explanation=strategy_explanation,
+            permanova_section=permanova_section,
             include_raw_data=include_raw_data
         )
         
@@ -1250,6 +1353,244 @@ class InteractiveReportGenerator:
                 padding: 10px;
             }
         }
+        
+        /* PERMANOVA Section Styles */
+        .permanova-section {
+            margin: 20px 0;
+        }
+        
+        .permanova-explanation {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .permanova-guide {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .guide-item {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .variables-container {
+            display: grid;
+            gap: 20px;
+        }
+        
+        .variable-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #cccccc;
+        }
+        
+        .variable-card.highly-significant {
+            border-left-color: #dc3545;
+        }
+        
+        .variable-card.very-significant {
+            border-left-color: #fd7e14;
+        }
+        
+        .variable-card.significant {
+            border-left-color: #ffc107;
+        }
+        
+        .variable-card.marginally-significant {
+            border-left-color: #20c997;
+        }
+        
+        .variable-card.not-significant {
+            border-left-color: #6c757d;
+        }
+        
+        .variable-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .variable-header h5 {
+            margin: 0;
+            color: #495057;
+        }
+        
+        .significance-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9em;
+            color: white;
+        }
+        
+        .significance-badge.highly-significant {
+            background-color: #dc3545;
+        }
+        
+        .significance-badge.very-significant {
+            background-color: #fd7e14;
+        }
+        
+        .significance-badge.significant {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        
+        .significance-badge.marginally-significant {
+            background-color: #20c997;
+        }
+        
+        .significance-badge.not-significant {
+            background-color: #6c757d;
+        }
+        
+        .variable-stats {
+            margin-bottom: 15px;
+        }
+        
+        .r-squared-bar {
+            position: relative;
+            background: #e9ecef;
+            height: 25px;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+        
+        .r-squared-fill {
+            height: 100%;
+            border-radius: 12px;
+            transition: width 0.3s ease;
+        }
+        
+        .r-squared-fill.highly-significant {
+            background: linear-gradient(90deg, #dc3545, #c82333);
+        }
+        
+        .r-squared-fill.very-significant {
+            background: linear-gradient(90deg, #fd7e14, #e8640f);
+        }
+        
+        .r-squared-fill.significant {
+            background: linear-gradient(90deg, #ffc107, #e0a800);
+        }
+        
+        .r-squared-fill.marginally-significant {
+            background: linear-gradient(90deg, #20c997, #1aa179);
+        }
+        
+        .r-squared-fill.not-significant {
+            background: linear-gradient(90deg, #6c757d, #5a6268);
+        }
+        
+        .r-squared-value {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+            font-size: 0.9em;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+        
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .stat-label {
+            font-weight: bold;
+            color: #6c757d;
+            font-size: 0.9em;
+            margin-bottom: 2px;
+        }
+        
+        .stat-value {
+            color: #495057;
+        }
+        
+        .variable-interpretation {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 15px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .variable-interpretation p {
+            margin: 0;
+            font-size: 0.95em;
+            line-height: 1.4;
+        }
+        
+        .permanova-recommendations {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .permanova-recommendations h4 {
+            color: #856404;
+            margin-bottom: 15px;
+        }
+        
+        .recommendation-item {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        
+        .recommendation-item.significant {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .recommendation-item.not-significant {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        @media (max-width: 768px) {
+            .permanova-guide {
+                grid-template-columns: 1fr;
+            }
+            
+            .stat-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .variable-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .significance-badge {
+                margin-top: 5px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1306,6 +1647,13 @@ class InteractiveReportGenerator:
         <div class="section">
             <h2>📈 Interactive Visualizations</h2>
             {{ visualizations|safe }}
+        </div>
+        
+        <!-- PERMANOVA Analysis -->
+        <div class="section">
+            <h2>🧬 Metadata Analysis (PERMANOVA)</h2>
+            <p>Statistical analysis of which metadata variables significantly explain differences in sample composition.</p>
+            {{ permanova_section|safe }}
         </div>
         
         <!-- Threshold Explorer -->
