@@ -267,12 +267,16 @@ class MetadataAnalyzer:
         # Convert distance matrix to feature space using MDS
         from sklearn.manifold import MDS
 
+        # Ensure distance matrix is symmetric (fix floating point differences)
+        symmetric_distance_matrix = (self.distance_matrix + self.distance_matrix.T) / 2
+        np.fill_diagonal(symmetric_distance_matrix, 0)  # Ensure diagonal is exactly zero
+
         mds = MDS(
             n_components=min(10, len(self.sample_names) - 1),
             dissimilarity="precomputed",
             random_state=42,
         )
-        X = mds.fit_transform(self.distance_matrix)
+        X = mds.fit_transform(symmetric_distance_matrix)
 
         for method in methods:
             logging.info(f"Clustering with {method}")
@@ -292,7 +296,7 @@ class MetadataAnalyzer:
                     clusterer = AgglomerativeClustering(
                         n_clusters=n_clusters, metric="precomputed", linkage="average"
                     )
-                    labels = clusterer.fit_predict(self.distance_matrix)
+                    labels = clusterer.fit_predict(symmetric_distance_matrix)
                 else:
                     continue
 
