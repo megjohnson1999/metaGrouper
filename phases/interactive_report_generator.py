@@ -1597,7 +1597,6 @@ class InteractiveReportGenerator:
                 if is_categorical:
                     # For categorical data, use discrete color mapping
                     import plotly.colors as pc
-                    import pandas as pd
                     categories = plot_df[default_color].dropna().unique()  # Remove NaN values
                     color_discrete_map = {cat: pc.qualitative.Set3[i % len(pc.qualitative.Set3)] 
                                         for i, cat in enumerate(categories)}
@@ -1681,7 +1680,6 @@ class InteractiveReportGenerator:
                 if is_categorical:
                     # For categorical data, use discrete color mapping
                     import plotly.colors as pc
-                    import pandas as pd
                     categories = plot_df[col].dropna().unique()  # Remove NaN values
                     color_discrete_map = {cat: pc.qualitative.Set3[i % len(pc.qualitative.Set3)] 
                                         for i, cat in enumerate(categories)}
