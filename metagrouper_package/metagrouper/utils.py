@@ -16,6 +16,47 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 
+def normalize_sample_name(sample_name: str) -> str:
+    """
+    Remove common processing suffixes from sample names for metadata matching.
+    
+    This function strips common suffixes that are added during data processing
+    (e.g., host removal, trimming, quality control) to ensure sample names
+    match between FASTQ files and metadata.
+    
+    Args:
+        sample_name: Original sample name from FASTQ filename
+        
+    Returns:
+        Normalized sample name with processing suffixes removed
+        
+    Examples:
+        >>> normalize_sample_name("Sample001_hr")
+        "Sample001"
+        >>> normalize_sample_name("NovaSeq_N983_I13380_39894_Celiac_Leonard_Stool_02_GEMM_038_18M_hr")
+        "NovaSeq_N983_I13380_39894_Celiac_Leonard_Stool_02_GEMM_038_18M"
+    """
+    suffixes_to_remove = [
+        '_hr',           # host-removed
+        '_trimmed',      # quality trimmed
+        '_filtered',     # quality filtered
+        '_clean',        # cleaned sequences
+        '_qc',           # quality controlled
+        '_dedup',        # deduplicated
+        '_norm',         # normalized
+        '_proc'          # processed
+    ]
+    
+    normalized = sample_name
+    for suffix in suffixes_to_remove:
+        if normalized.endswith(suffix):
+            normalized = normalized[:-len(suffix)]
+            break  # Only remove one suffix to avoid over-stripping
+    
+    logging.debug(f"Normalized sample name: '{sample_name}' -> '{normalized}'")
+    return normalized
+
+
 def setup_logging(verbose: bool = False, log_file: str = "metagrouper.log"):
     """Set up logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
@@ -89,18 +130,22 @@ def find_fastq_files(input_dir: str) -> List[Tuple[Union[str, List[str]], str]]:
     # Create final file pairs list
     file_pairs = []
     for sample_name, file_dict in sample_files.items():
+        # Normalize sample name for metadata matching
+        normalized_name = normalize_sample_name(sample_name)
+        
         if "R1" in file_dict and "R2" in file_dict:
             # Paired-end reads
-            file_pairs.append(([file_dict["R1"], file_dict["R2"]], sample_name))
-            logging.info(f"Found paired-end sample: {sample_name}")
+            file_pairs.append(([file_dict["R1"], file_dict["R2"]], normalized_name))
+            logging.info(f"Found paired-end sample: {sample_name} -> {normalized_name}")
         elif "R1" in file_dict or "R2" in file_dict:
             # Only one mate found - warn but process as single-end
             read_file = file_dict.get("R1") or file_dict.get("R2")
-            file_pairs.append((read_file, sample_name))
-            logging.warning(f"Only one mate found for {sample_name}, processing as single-end")
+            file_pairs.append((read_file, normalized_name))
+            logging.warning(f"Only one mate found for {sample_name}, processing as single-end -> {normalized_name}")
         elif "single" in file_dict:
             # Single-end reads
-            file_pairs.append((file_dict["single"], sample_name))
+            file_pairs.append((file_dict["single"], normalized_name))
+            logging.info(f"Found single-end sample: {sample_name} -> {normalized_name}")
         else:
             logging.warning(f"No valid reads found for sample: {sample_name}")
 
