@@ -114,10 +114,21 @@ MetaGrouper has been updated with research-based similarity thresholds:
 - Professional publication-ready layout with export capabilities
 - Built using Plotly for responsive, interactive charts
 
+### Data-Driven Metadata Filtering (New!)
+MetaGrouper now uses intelligent content-based filtering instead of hard-coded name exclusions:
+- **Auto-includes patient IDs** (patient_ID, cambridge_patient_ID) for individual-specific analysis
+- **Content-based detection** excludes file paths, UUIDs, and technical identifiers automatically
+- **Preserves binary variables** (sex, IBD status) that were incorrectly excluded before
+- **Information content analysis** distinguishes meaningful high-cardinality from noise
+- **Works across datasets** with different naming conventions and schemas
+- **Robust filtering** using `detect_file_paths()`, `detect_sequential_ids()`, `detect_technical_hashes()`
+
 ### Benefits
 - **10x higher sensitivity** than previous defaults (scaled=100 vs 1000)
 - **Multi-scale analysis** captures different similarity patterns (k=21,31,51)
 - **Presence/absence mode** robust to PCR bias and technical artifacts
+- **Smart metadata filtering** includes patient IDs while excluding technical noise
+- **Cross-dataset compatibility** works with different naming conventions
 - More biologically meaningful sample groupings
 - Better detection of similar samples for co-assembly
 - Reduced false negative groupings (addresses "97-99% dissimilar" issues)

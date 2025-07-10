@@ -5,7 +5,31 @@ All notable changes to MetaGrouper will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2024-XX-XX
+## [Unreleased]
+
+### Added
+- **Data-driven metadata filtering** replaces hard-coded name exclusions
+- Content-based detection functions: `detect_file_paths()`, `detect_sequential_ids()`, `detect_technical_hashes()`
+- Information content analysis for distinguishing meaningful variables from noise
+- Auto-inclusion of patient IDs while excluding technical identifiers
+- Cross-dataset compatibility for different naming conventions
+
+### Changed
+- Metadata auto-filtering now preserves binary variables (sex, IBD status)
+- Improved biological variable retention across diverse dataset types
+- Enhanced `.gitignore` patterns for bioinformatics outputs
+
+### Fixed
+- Patient ID variables now correctly included in auto-filtered analysis
+- Binary variables no longer incorrectly excluded as "constant"
+- Resolved hard-coded exclusion issues preventing biological variable analysis
+
+### Removed
+- Hard-coded name-based exclusions from metadata filtering
+- Outdated documentation files (PHASE_*.md, PROJECT_SUMMARY.md, etc.)
+- Test artifacts and temporary files from repository
+
+## [1.0.0] - 2025-XX-XX
 
 ### Added
 
