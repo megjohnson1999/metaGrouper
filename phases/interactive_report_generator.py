@@ -193,8 +193,6 @@ class InteractiveReportGenerator:
         """
         
         for i, group in enumerate(recommendation.groups):
-            benefits_list = "".join([f"<li>{benefit}</li>" for benefit in group.expected_benefits])
-            challenges_list = "".join([f"<li>{challenge}</li>" for challenge in group.expected_challenges])
             
             details_html += f"""
             <div class="group-card">
@@ -222,16 +220,6 @@ class InteractiveReportGenerator:
                     <strong>Samples:</strong> {', '.join(group.sample_names)}
                 </div>
                 
-                <div class="group-assessment">
-                    <div class="benefits">
-                        <strong>Expected Benefits:</strong>
-                        <ul>{benefits_list}</ul>
-                    </div>
-                    <div class="challenges">
-                        <strong>Potential Challenges:</strong>
-                        <ul>{challenges_list}</ul>
-                    </div>
-                </div>
             </div>
             """
         
@@ -936,13 +924,6 @@ class InteractiveReportGenerator:
             margin-top: 15px;
         }
         
-        .benefits ul {
-            color: #38a169;
-        }
-        
-        .challenges ul {
-            color: #e53e3e;
-        }
         
         .viz-section {
             margin-bottom: 40px;

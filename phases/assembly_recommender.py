@@ -747,15 +747,6 @@ def save_recommendations(recommendation: AssemblyRecommendation, output_path: st
                 f.write(f"- **Average Distance:** {group.avg_distance:.3f}\n")
                 f.write(f"- **Confidence Score:** {group.confidence_score:.2f}\n\n")
 
-                f.write("**Expected Benefits:**\n")
-                for benefit in group.expected_benefits:
-                    f.write(f"- {benefit}\n")
-                f.write("\n")
-
-                f.write("**Expected Challenges:**\n")
-                for challenge in group.expected_challenges:
-                    f.write(f"- {challenge}\n")
-                f.write("\n")
 
         # Assembly commands
         f.write("## Assembly Commands\n\n")
