@@ -139,6 +139,38 @@ SRR061958/
 
 # Test output directories (can be regenerated)
 test_*/
+comprehensive_test/
+sourmash_new_subset/
+test_*_compare/
+test_autofilter_results/
+test_fixed_dropdown/
+test_k31_compare/
+test_optimized_sourmash/
+test_paired_end/
+test_removed_benefits/
+test_specific_variables/
+test_updated_threshold_explorer/
+
+# Bioinformatics analysis outputs
+*.sig               # Sourmash signature files
+*.pkl               # Pickled data files
+*.npy               # Numpy binary arrays
+distance_matrix.*   # Distance matrices
+kmer_profiles.*     # K-mer profile data
+signatures.*        # Signature collections
+
+# Generated analysis files
+*_heatmap.png
+*_plot.png
+*_strategy_overview.png
+clustering_*.png
+pca_*.png
+variable_importance.png
+assembly_recommendations/
+permanova_results.csv
+analysis_config.json
+analysis_report.md
+interactive_report.html
 
 # Example and test data
 example_data/
@@ -156,13 +188,28 @@ quick_test/
 *_results/
 *_analysis/
 
+# Test scripts and manual files
+manual_*.sh
+test_manual_*.csv
+test_*_filtering.py
+analyze_*_metadata.py
+
+# Large metadata files (keep examples only)
+*.txt
+!requirements.txt
+!README.txt
+*.csv
+!**/example_data/*.csv
+
 # Log files
 *.log
 metagrouper.log
+slurm-*.out
 
 # Temporary files
 *.tmp
 *.temp
+tmp*.fastq.sig
 .DS_Store
 Thumbs.db
 
