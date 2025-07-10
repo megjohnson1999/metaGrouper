@@ -82,24 +82,6 @@ See `python metagrouper.py --help` for all options.
 - **Assembly recommendations**: Strategy summaries and ready-to-run shell scripts
 - **Interactive report**: `interactive_report.html` with dynamic visualizations
 
-## Example Output
-
-### Sample Similarity Analysis
-<img src="docs/images/example_distance_heatmap.png" alt="Sample Distance Heatmap" width="400"/>
-<img src="docs/images/example_pca_plot.png" alt="PCA Plot" width="400"/>
-
-*Distance heatmap showing sample similarities (left) and PCA visualization of k-mer profiles (right)*
-
-### Metadata Association Testing
-<img src="docs/images/example_variable_importance.png" alt="Variable Importance" width="600"/>
-
-*PERMANOVA results showing which metadata variables significantly explain sample composition differences*
-
-### Assembly Strategy Recommendations
-<img src="docs/images/example_assembly_strategy.png" alt="Assembly Strategy Overview" width="700"/>
-
-*Comprehensive assembly strategy overview with grouping decisions and confidence scores*
-
 ## Documentation
 
 📚 **[Complete Tutorial](TUTORIAL.md)** - Comprehensive guide with examples, parameter explanations, and troubleshooting
