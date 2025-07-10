@@ -18,13 +18,12 @@
 - ⚡ **Memory-efficient** processing for large datasets
 - 🔧 **Multi-assembler support** (MEGAHIT, SPAdes, Flye)
 
-## Recent Improvements (2025)
+## Recent Improvements
 
-### 🚀 **High Sensitivity Sourmash Analysis** (NEW!)
+### 🚀 **High Sensitivity Sourmash Analysis**
 - **10x higher sensitivity**: scaled=100 vs 1000 (retains 10x more k-mers)
 - **Multi-scale analysis**: k=21,31,51 captures different similarity patterns
 - **Presence/absence mode**: Robust to PCR bias (no abundance tracking by default)
-- **Resolves "97-99% dissimilar" issues** from previous analyses
 - **Scientifically robust** for metagenomic data with technical artifacts
 
 ### ✨ **Sample Name Normalization**
@@ -39,7 +38,6 @@
 - **Detailed filtering reports** explain decisions
 
 ### ⚡ **Performance Optimizations**
-- **10-100x faster** k-mer analysis with sourmash MinHash
 - **Constant memory usage** for large datasets
 - **Parallel processing** with auto-detected CPU cores
 
