@@ -322,6 +322,9 @@ def run_analysis(args):
     print("🧬 Phase 1: K-mer Profiling and Similarity Analysis")
     print("-" * 60)
     
+    # Handle track_abundance logic (default to False for robustness to PCR bias)
+    track_abundance = args.track_abundance and not getattr(args, 'no_track_abundance', False)
+    
     # Always use sourmash for k-mer profiling
     print(f"⚡ Using sourmash for fast MinHash k-mer sketching")
     print(f"   K-mer size: {args.kmer_size}")
@@ -331,9 +334,6 @@ def run_analysis(args):
         print(f"   Additional k-mer sizes: {args.additional_k_sizes} (multi-scale analysis)")
     elif args.scaled <= 100:
         print(f"   Multi-scale analysis: k=21,31,51 (auto-enabled for high sensitivity)")
-    
-    # Handle track_abundance logic (default to False for robustness to PCR bias)
-    track_abundance = args.track_abundance and not getattr(args, 'no_track_abundance', False)
     
     profiler = SourmashProfiler(
         k=args.kmer_size,
