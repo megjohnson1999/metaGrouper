@@ -21,8 +21,168 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from itertools import combinations
 import warnings
+import re
+import os
 
 warnings.filterwarnings("ignore")
+
+
+def detect_file_paths(values: pd.Series, threshold: float = 0.8) -> bool:
+    """
+    Detect if a column contains file paths.
+    
+    Args:
+        values: Series of column values (non-null)
+        threshold: Minimum fraction of values that should look like paths
+        
+    Returns:
+        True if column appears to contain file paths
+    """
+    if len(values) == 0:
+        return False
+    
+    path_indicators = [
+        r'/',  # Unix paths
+        r'\\',  # Windows paths  
+        r'\.[a-zA-Z0-9]{2,4}$',  # File extensions
+        r'^[A-Z]:\\',  # Windows drive letters
+        r'/[a-zA-Z0-9_.-]+/',  # Directory structure
+    ]
+    
+    path_count = 0
+    for value in values.astype(str):
+        if any(re.search(pattern, value) for pattern in path_indicators):
+            path_count += 1
+    
+    return (path_count / len(values)) >= threshold
+
+
+def detect_sequential_ids(values: pd.Series, threshold: float = 0.8) -> bool:
+    """
+    Detect if a column contains sequential IDs or row numbers.
+    
+    Args:
+        values: Series of column values (non-null)
+        threshold: Minimum fraction that should be sequential
+        
+    Returns:
+        True if column appears to be sequential IDs
+    """
+    if len(values) < 3:
+        return False
+    
+    try:
+        # Try to convert to numeric
+        numeric_values = pd.to_numeric(values, errors='coerce')
+        if numeric_values.isna().sum() > len(values) * 0.1:  # Too many non-numeric
+            return False
+        
+        # Check if all values are unique integers (like database row IDs)
+        unique_values = numeric_values.dropna().unique()
+        if len(unique_values) == len(values) and all(v == int(v) for v in unique_values):
+            # Check if the range is suspiciously sequential (like 1,2,3...n)
+            min_val, max_val = min(unique_values), max(unique_values)
+            expected_range = max_val - min_val + 1
+            if expected_range == len(unique_values) and min_val <= 10:
+                return True  # Likely database row IDs starting from low numbers
+        
+        # Check if values are mostly sequential
+        sorted_values = sorted(numeric_values.dropna())
+        sequential_count = 0
+        
+        for i in range(1, len(sorted_values)):
+            if abs(sorted_values[i] - sorted_values[i-1]) <= 1:
+                sequential_count += 1
+        
+        return (sequential_count / (len(sorted_values) - 1)) >= threshold
+        
+    except:
+        return False
+
+
+def detect_technical_hashes(values: pd.Series, threshold: float = 0.7) -> bool:
+    """
+    Detect if a column contains UUIDs, hashes, or other technical identifiers.
+    
+    Args:
+        values: Series of column values (non-null)
+        threshold: Minimum fraction that should look like technical IDs
+        
+    Returns:
+        True if column appears to contain technical identifiers
+    """
+    if len(values) == 0:
+        return False
+    
+    technical_patterns = [
+        r'^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$',  # UUID
+        r'^[A-Fa-f0-9]{32}$',  # MD5
+        r'^[A-Fa-f0-9]{40}$',  # SHA1
+        r'^[A-Za-z0-9_-]{20,}$',  # Long alphanumeric strings (20+ chars)
+        r'^\w+_I\d+_\d+_',  # Sequencing IDs like M595_I7606_7544_...
+        r'^\w+\.\w+\.\w+\.\w+',  # Multi-dot separated technical IDs
+        r'^[A-Z]\d+_[A-Z]\d+_',  # Pattern like M595_I7606_
+        r'\.fastq',  # FASTQ file names
+        r'\.gz$',  # Compressed files
+    ]
+    
+    technical_count = 0
+    for value in values.astype(str):
+        if any(re.search(pattern, value) for pattern in technical_patterns):
+            technical_count += 1
+    
+    return (technical_count / len(values)) >= threshold
+
+
+def calculate_information_content(values: pd.Series) -> float:
+    """
+    Calculate the information content (entropy) of a column.
+    
+    Args:
+        values: Series of column values (non-null)
+        
+    Returns:
+        Entropy value (higher = more informative)
+    """
+    if len(values) == 0:
+        return 0.0
+    
+    # Calculate value frequencies
+    value_counts = values.value_counts(normalize=True)
+    
+    # Calculate entropy
+    entropy = -sum(p * np.log2(p) for p in value_counts if p > 0)
+    
+    return entropy
+
+
+def detect_constant_values(values: pd.Series, max_unique_ratio: float = 0.005) -> bool:
+    """
+    Detect if a column has essentially constant values.
+    Only excludes if there's truly no meaningful variation.
+    
+    Args:
+        values: Series of column values (non-null)
+        max_unique_ratio: Maximum ratio of unique values to consider constant
+        
+    Returns:
+        True if column is essentially constant
+    """
+    if len(values) == 0:
+        return True
+    
+    unique_count = len(values.unique())
+    
+    # Never exclude binary variables (2 unique values) - often biologically important
+    if unique_count == 2:
+        return False
+    
+    # Don't exclude if there are 3+ unique values
+    if unique_count >= 3:
+        return False
+    
+    # Only exclude single-value columns
+    return unique_count <= 1
 
 
 def is_biological_id(column_name: str) -> bool:
@@ -100,20 +260,22 @@ def filter_metadata_variables(
         # Get column values
         values = metadata[column_name].dropna()
         
-        # Exact exclusions (technical/administrative columns)
-        technical_exclusions = [
-            'Unnamed: 0', 'Plate', 'Well', 'Name', 'Sample_ID'
-        ]
-        if column_name in technical_exclusions:
-            exclusion_reasons[column_name] = "Technical/administrative column"
+        # Content-based detection of technical columns
+        if detect_file_paths(values):
+            exclusion_reasons[column_name] = "Contains file paths"
             continue
             
-        # Pattern-based exclusions (but check biological whitelist first)
-        if (column_name.endswith('_ID') or 'Barcode' in column_name or 
-            'External' in column_name or 'Collaborator' in column_name):
-            if not is_biological_id(column_name):
-                exclusion_reasons[column_name] = "Technical identifier"
-                continue
+        if detect_sequential_ids(values):
+            exclusion_reasons[column_name] = "Sequential row numbers/IDs"
+            continue
+            
+        if detect_technical_hashes(values):
+            exclusion_reasons[column_name] = "Technical hashes/UUIDs"
+            continue
+            
+        if detect_constant_values(values):
+            exclusion_reasons[column_name] = "Essentially constant values"
+            continue
         
         # Statistical filters
         if len(values) == 0:
@@ -131,9 +293,13 @@ def filter_metadata_variables(
         # Too many unique values (likely continuous ID or noise)
         unique_ratio = unique_count / total_count
         if unique_ratio > max_unique_ratio:
-            # Exception for biological IDs - they can have many unique values
-            if not is_biological_id(column_name):
-                exclusion_reasons[column_name] = f"Too many unique values ({unique_ratio:.1%})"
+            # Check if high uniqueness is informative (e.g., patient IDs) vs noise
+            information_content = calculate_information_content(values)
+            
+            # Allow high uniqueness if it has high information content
+            # and doesn't look like technical noise
+            if information_content < 2.0:  # Low information content
+                exclusion_reasons[column_name] = f"Too many unique values with low information content ({unique_ratio:.1%})"
                 continue
                 
         # Too many missing values
