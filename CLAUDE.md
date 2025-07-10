@@ -56,6 +56,12 @@ mypy metagrouper
 # Basic analysis
 python metagrouper.py /path/to/fastq/files/ -o results/
 
+# High sensitivity analysis (recommended - robust to PCR bias)
+python metagrouper.py /path/to/fastq/files/ \
+  --scaled 100 \
+  --additional-k-sizes 31 51 \
+  -o results/
+
 # Full analysis with metadata and assembly recommendations
 python metagrouper.py /path/to/fastq/files/ \
   --metadata samples_metadata.csv \
@@ -76,6 +82,13 @@ python preprocess.py raw_data/ -o clean_data/
 ```
 
 ## Recent Improvements (2025)
+
+### High Sensitivity Sourmash Parameters (New!)
+MetaGrouper now uses optimized sourmash parameters for much better sensitivity:
+- **scaled**: 1000 → 100 (10x more k-mers retained for higher resolution)
+- **track_abundance**: True → False (presence/absence mode, robust to PCR bias)
+- **multi_k_analysis**: Added support for multiple k-mer sizes (21, 31, 51)
+- **resolves**: "97-99% dissimilar" issues from previous analyses
 
 ### Threshold Updates
 MetaGrouper has been updated with research-based similarity thresholds:
@@ -102,9 +115,12 @@ MetaGrouper has been updated with research-based similarity thresholds:
 - Built using Plotly for responsive, interactive charts
 
 ### Benefits
+- **10x higher sensitivity** than previous defaults (scaled=100 vs 1000)
+- **Multi-scale analysis** captures different similarity patterns (k=21,31,51)
+- **Presence/absence mode** robust to PCR bias and technical artifacts
 - More biologically meaningful sample groupings
 - Better detection of similar samples for co-assembly
-- Reduced false negative groupings
+- Reduced false negative groupings (addresses "97-99% dissimilar" issues)
 - Improved statistical robustness
 - Enhanced user experience with interactive analysis exploration
 

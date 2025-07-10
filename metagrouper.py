@@ -187,8 +187,8 @@ Examples:
   # Full analysis with metadata (All phases)
   python metagrouper.py /path/to/fastq/files -m metadata.csv -o results/
   
-  # Memory-efficient for large datasets
-  python metagrouper.py /path/to/fastq/files -o results/ --use-sketching --sketch-size 5000
+  # High sensitivity analysis (robust to PCR bias)
+  python metagrouper.py /path/to/fastq/files --scaled 100 --additional-k-sizes 31 51 -o results/
   
   # Complete workflow with assembly recommendations
   python metagrouper.py /path/to/fastq/files --metadata samples_metadata.csv \\
@@ -210,13 +210,17 @@ Examples:
                        choices=["braycurtis", "jaccard", "cosine", "euclidean"],
                        help="Distance metric (default: braycurtis)")
     
-    # Sourmash k-mer profiling arguments
-    parser.add_argument("--scaled", type=int, default=1000,
-                       help="Sourmash scaled parameter (1 in N k-mers kept, default: 1000)")
+    # Sourmash k-mer profiling arguments (high sensitivity defaults)
+    parser.add_argument("--scaled", type=int, default=100,
+                       help="Sourmash scaled parameter (1 in N k-mers kept, default: 100 for high sensitivity)")
     parser.add_argument("--num-hashes", type=int, default=0,
                        help="Number of hashes (0 for scaled mode, default: 0)")
-    parser.add_argument("--track-abundance", action="store_true",
-                       help="Track k-mer abundances in sourmash signatures")
+    parser.add_argument("--track-abundance", action="store_true", default=False,
+                       help="Track k-mer abundances in sourmash signatures (more sensitive to PCR bias)")
+    parser.add_argument("--no-track-abundance", action="store_true",
+                       help="Explicitly disable k-mer abundance tracking (default behavior)")
+    parser.add_argument("--additional-k-sizes", nargs="+", type=int,
+                       help="Additional k-mer sizes for multi-scale analysis (e.g., --additional-k-sizes 31 51)")
     parser.add_argument("--save-signatures", action="store_true",
                        help="Save sourmash signatures for future use")
     
@@ -321,15 +325,23 @@ def run_analysis(args):
     # Always use sourmash for k-mer profiling
     print(f"⚡ Using sourmash for fast MinHash k-mer sketching")
     print(f"   K-mer size: {args.kmer_size}")
-    print(f"   Scaled: {args.scaled}")
-    print(f"   Track abundance: {args.track_abundance}")
+    print(f"   Scaled: {args.scaled} (higher sensitivity than default 1000)")
+    print(f"   Track abundance: {track_abundance} (presence/absence mode more robust to PCR bias)")
+    if hasattr(args, 'additional_k_sizes') and args.additional_k_sizes:
+        print(f"   Additional k-mer sizes: {args.additional_k_sizes} (multi-scale analysis)")
+    elif args.scaled <= 100:
+        print(f"   Multi-scale analysis: k=21,31,51 (auto-enabled for high sensitivity)")
+    
+    # Handle track_abundance logic (default to False for robustness to PCR bias)
+    track_abundance = args.track_abundance and not getattr(args, 'no_track_abundance', False)
     
     profiler = SourmashProfiler(
         k=args.kmer_size,
         scaled=args.scaled,
         num_hashes=args.num_hashes,
         processes=process_count,
-        track_abundance=args.track_abundance
+        track_abundance=track_abundance,
+        additional_k_sizes=getattr(args, 'additional_k_sizes', None)
     )
     
     # Process samples
@@ -338,9 +350,14 @@ def run_analysis(args):
     
     # Process samples with sourmash
     signatures = profiler.process_samples_parallel(fastq_files)
+    
+    # Use primary k-mer size for similarity analysis
+    similarity_matrix = profiler.compute_similarity_matrix(signatures, use_k_size=args.kmer_size)
+    
     profiles, sample_names = profiler.export_to_metagrouper_format(
         signatures, 
-        np.zeros((len(signatures), len(signatures)))  # Placeholder
+        similarity_matrix,
+        use_k_size=args.kmer_size
     )
     failed_samples = []
     
@@ -367,17 +384,16 @@ def run_analysis(args):
     # Memory usage report
     print(f"💾 Using sourmash MinHash sketches for efficient memory usage")
     
-    # Compute similarity/distance matrix
-    print(f"\n🔗 Computing similarity matrix...")
+    # Convert similarity to distance matrix
+    print(f"\n🔗 Converting similarity to distance matrix...")
     start_time = time.time()
     
-    # Use sourmash for fast similarity computation
-    similarity_matrix = profiler.compute_similarity_matrix(signatures)
+    # Convert similarity to distance matrix
     distance_matrix = 1 - similarity_matrix
     
     similarity_time = time.time() - start_time
-    print(f"✅ Sourmash similarity computed in {similarity_time:.1f}s")
-    log_memory_usage("After sourmash similarity computation")
+    print(f"✅ Similarity matrix converted to distances in {similarity_time:.1f}s")
+    log_memory_usage("After similarity matrix conversion")
     
     # Save results
     save_results(profiles, distance_matrix, sample_names, args.output)

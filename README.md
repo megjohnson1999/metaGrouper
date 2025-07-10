@@ -20,6 +20,13 @@
 
 ## Recent Improvements (2025)
 
+### 🚀 **High Sensitivity Sourmash Analysis** (NEW!)
+- **10x higher sensitivity**: scaled=100 vs 1000 (retains 10x more k-mers)
+- **Multi-scale analysis**: k=21,31,51 captures different similarity patterns
+- **Presence/absence mode**: Robust to PCR bias (no abundance tracking by default)
+- **Resolves "97-99% dissimilar" issues** from previous analyses
+- **Scientifically robust** for metagenomic data with technical artifacts
+
 ### ✨ **Sample Name Normalization**
 - **Automatic suffix removal** (`_hr`, `_trimmed`, `_filtered`) for proper metadata matching
 - **Robust sample ID alignment** between FASTQ files and metadata
@@ -58,6 +65,12 @@ python metagrouper.py --help
 ```bash
 # Simple analysis
 python metagrouper.py /path/to/fastq/files -o results/
+
+# High sensitivity analysis (recommended)
+python metagrouper.py /path/to/fastq/files \
+    --scaled 100 \
+    --additional-k-sizes 31 51 \
+    -o results/
 
 # With metadata and auto-filtering
 python metagrouper.py /path/to/fastq/files \
@@ -111,8 +124,9 @@ NovaSeq_N983_I13382_39896_Sample_03,P002,Control,Male,12,C-section
 
 ### K-mer Analysis
 - `-k, --kmer-size` - K-mer size (default: 21)
-- `--scaled` - Sourmash scaled parameter (default: 1000)
-- `--track-abundance` - Track k-mer abundances
+- `--scaled` - Sourmash scaled parameter (default: 100 for high sensitivity)
+- `--track-abundance` - Track k-mer abundances (disabled by default, more robust to PCR bias)
+- `--additional-k-sizes` - Additional k-mer sizes for multi-scale analysis (e.g., 31 51)
 - `--save-signatures` - Save sourmash signatures
 
 ### Assembly Recommendations

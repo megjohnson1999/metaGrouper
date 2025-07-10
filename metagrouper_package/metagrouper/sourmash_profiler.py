@@ -28,7 +28,7 @@ class SourmashProfiler:
     
     def __init__(self, 
                  k: int = 21,
-                 scaled: int = 1000,
+                 scaled: int = 100,
                  num_hashes: int = 0,
                  seed: int = 42,
                  processes: int = 1,
@@ -36,21 +36,23 @@ class SourmashProfiler:
                  dna: bool = True,
                  dayhoff: bool = False,
                  hp: bool = False,
-                 protein: bool = False):
+                 protein: bool = False,
+                 additional_k_sizes: Optional[List[int]] = None):
         """
         Initialize sourmash profiler.
         
         Args:
-            k: K-mer size
-            scaled: Scaled sketch (1 in N hashes kept)
+            k: K-mer size (default: 21)
+            scaled: Scaled sketch (1 in N hashes kept, default: 100 for high sensitivity)
             num_hashes: Number of hashes to keep (0 for scaled)
             seed: Random seed for MinHash
             processes: Number of parallel processes
-            track_abundance: Track k-mer abundances
+            track_abundance: Track k-mer abundances (default: False, more robust to PCR bias)
             dna: DNA alphabet (default)
             dayhoff: Dayhoff alphabet
             hp: Hydrophobic-polar alphabet
             protein: Protein alphabet
+            additional_k_sizes: Additional k-mer sizes to compute (e.g., [31, 51])
         """
         self.k = k
         self.scaled = scaled if num_hashes == 0 else 0
@@ -58,6 +60,11 @@ class SourmashProfiler:
         self.seed = seed
         self.processes = processes
         self.track_abundance = track_abundance
+        self.additional_k_sizes = additional_k_sizes or []
+        
+        # Set default additional k-sizes for multi-scale analysis
+        if not self.additional_k_sizes and scaled <= 100:
+            self.additional_k_sizes = [31, 51]  # Multi-scale like your previous analysis
         
         # Set molecule type
         if dna:
@@ -72,36 +79,40 @@ class SourmashProfiler:
             self.moltype = 'DNA'
             
         logging.info(f"Initialized SourmashProfiler: k={k}, scaled={scaled}, "
-                    f"num_hashes={num_hashes}, moltype={self.moltype}")
+                    f"num_hashes={num_hashes}, moltype={self.moltype}, "
+                    f"track_abundance={track_abundance}, additional_k_sizes={self.additional_k_sizes}")
     
-    def create_minhash(self) -> MinHash:
+    def create_minhash(self, ksize: Optional[int] = None) -> MinHash:
         """Create a new MinHash object with current parameters."""
+        k = ksize or self.k
         if self.scaled > 0:
-            return MinHash(n=0, ksize=self.k, scaled=self.scaled, 
+            return MinHash(n=0, ksize=k, scaled=self.scaled, 
                           seed=self.seed, track_abundance=self.track_abundance,
                           is_protein=(self.moltype == 'protein'),
                           dayhoff=(self.moltype == 'dayhoff'),
                           hp=(self.moltype == 'hp'))
         else:
-            return MinHash(n=self.num_hashes, ksize=self.k, 
+            return MinHash(n=self.num_hashes, ksize=k, 
                           seed=self.seed, track_abundance=self.track_abundance,
                           is_protein=(self.moltype == 'protein'),
                           dayhoff=(self.moltype == 'dayhoff'),
                           hp=(self.moltype == 'hp'))
     
     def sketch_sample(self, filepath: Union[str, List[str]], 
-                     sample_name: Optional[str] = None) -> SourmashSignature:
+                     sample_name: Optional[str] = None) -> List[SourmashSignature]:
         """
-        Create sourmash signature for a sample.
+        Create sourmash signatures for a sample (multi-scale analysis).
         
         Args:
             filepath: Path to FASTQ file(s)
             sample_name: Name for the signature
             
         Returns:
-            SourmashSignature object
+            List of SourmashSignature objects (one per k-mer size)
         """
-        mh = self.create_minhash()
+        # Create multiple MinHash objects for different k-mer sizes
+        k_sizes = [self.k] + self.additional_k_sizes
+        minhashes = {k: self.create_minhash(k) for k in k_sizes}
         
         # Handle both single files and paired-end file lists
         file_paths = [filepath] if isinstance(filepath, str) else filepath
@@ -135,7 +146,9 @@ class SourmashProfiler:
                 # Process the combined file
                 import screed
                 for record in screed.open(temp_combined_path):
-                    mh.add_sequence(record.sequence, force=True)
+                    # Add sequence to all k-mer sizes
+                    for mh in minhashes.values():
+                        mh.add_sequence(record.sequence, force=True)
                 
             finally:
                 # Clean up temporary file
@@ -151,16 +164,23 @@ class SourmashProfiler:
                 # Use screed to parse FASTQ files (screed handles gzipped files automatically)
                 import screed
                 for record in screed.open(file_path):
-                    mh.add_sequence(record.sequence, force=True)
+                    # Add sequence to all k-mer sizes
+                    for mh in minhashes.values():
+                        mh.add_sequence(record.sequence, force=True)
         
-        # Create signature
+        # Create signatures for all k-mer sizes
         if sample_name is None:
             sample_name = Path(file_paths[0]).stem
             
-        sig = SourmashSignature(mh, name=sample_name)
-        return sig
+        signatures = []
+        for k, mh in minhashes.items():
+            sig_name = f"{sample_name}_k{k}" if len(minhashes) > 1 else sample_name
+            sig = SourmashSignature(mh, name=sig_name)
+            signatures.append(sig)
+        
+        return signatures
     
-    def process_samples_parallel(self, samples: Union[Dict[str, Union[str, List[str]]], List[Tuple[Union[str, List[str]], str]]]) -> Dict[str, SourmashSignature]:
+    def process_samples_parallel(self, samples: Union[Dict[str, Union[str, List[str]]], List[Tuple[Union[str, List[str]], str]]]) -> Dict[str, List[SourmashSignature]]:
         """
         Process multiple samples in parallel.
         
@@ -170,7 +190,7 @@ class SourmashProfiler:
                     Where each tuple is (filepath_or_list, sample_name)
             
         Returns:
-            Dictionary mapping sample names to signatures
+            Dictionary mapping sample names to lists of signatures (one per k-mer size)
         """
         signatures = {}
         
@@ -202,8 +222,8 @@ class SourmashProfiler:
             for sample_name, filepath in sample_dict.items():
                 logging.info(f"Processing {sample_name}")
                 try:
-                    sig = self.sketch_sample(filepath, sample_name)
-                    signatures[sample_name] = sig
+                    sigs = self.sketch_sample(filepath, sample_name)
+                    signatures[sample_name] = sigs
                 except Exception as e:
                     logging.error(f"Error processing {sample_name}: {e}")
         else:
@@ -217,20 +237,22 @@ class SourmashProfiler:
                 for future in as_completed(future_to_sample):
                     sample_name = future_to_sample[future]
                     try:
-                        sig = future.result()
-                        signatures[sample_name] = sig
+                        sigs = future.result()
+                        signatures[sample_name] = sigs
                         logging.info(f"Completed {sample_name}")
                     except Exception as e:
                         logging.error(f"Error processing {sample_name}: {e}")
         
         return signatures
     
-    def compute_similarity_matrix(self, signatures: Dict[str, SourmashSignature]) -> np.ndarray:
+    def compute_similarity_matrix(self, signatures: Dict[str, List[SourmashSignature]], 
+                                 use_k_size: Optional[int] = None) -> np.ndarray:
         """
         Compute pairwise Jaccard similarity matrix using sourmash compare.
         
         Args:
-            signatures: Dictionary of sourmash signatures
+            signatures: Dictionary of sourmash signature lists
+            use_k_size: Specific k-mer size to use (default: primary k-mer size)
             
         Returns:
             Similarity matrix as numpy array
@@ -238,10 +260,28 @@ class SourmashProfiler:
         sample_names = list(signatures.keys())
         n_samples = len(sample_names)
         
+        # Select signatures for the specified k-mer size
+        if use_k_size is None:
+            use_k_size = self.k
+            
+        selected_signatures = []
+        for sample_name in sample_names:
+            sig_list = signatures[sample_name]
+            # Find signature with matching k-mer size
+            matching_sig = None
+            for sig in sig_list:
+                if sig.minhash.ksize == use_k_size:
+                    matching_sig = sig
+                    break
+            if matching_sig is None:
+                # Fall back to first signature if no exact match
+                matching_sig = sig_list[0]
+            selected_signatures.append(matching_sig)
+        
         # Create temporary file for signatures
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sig', delete=False) as temp_sig_file:
             temp_sig_path = temp_sig_file.name
-            sourmash.save_signatures(signatures.values(), temp_sig_file)
+            sourmash.save_signatures(selected_signatures, temp_sig_file)
         
         # Create temporary file for output matrix
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as temp_matrix_file:
@@ -270,7 +310,7 @@ class SourmashProfiler:
             logging.error(f"sourmash compare failed: {e.stderr}")
             # Fall back to manual computation
             logging.warning("Falling back to manual similarity computation")
-            return self._compute_similarity_matrix_manual(signatures)
+            return self._compute_similarity_matrix_manual(dict(zip(sample_names, selected_signatures)))
         
         finally:
             # Clean up temporary files
@@ -310,18 +350,23 @@ class SourmashProfiler:
                 
         return similarity_matrix
     
-    def save_signatures(self, signatures: Dict[str, SourmashSignature], 
+    def save_signatures(self, signatures: Dict[str, List[SourmashSignature]], 
                        output_path: str) -> None:
         """
         Save signatures to a file.
         
         Args:
-            signatures: Dictionary of signatures
+            signatures: Dictionary of signature lists
             output_path: Output file path (.sig or .sig.gz)
         """
+        # Flatten all signatures into one list
+        all_signatures = []
+        for sig_list in signatures.values():
+            all_signatures.extend(sig_list)
+        
         with open(output_path, 'w') as f:
-            sourmash.save_signatures(signatures.values(), f)
-        logging.info(f"Saved {len(signatures)} signatures to {output_path}")
+            sourmash.save_signatures(all_signatures, f)
+        logging.info(f"Saved {len(all_signatures)} signatures ({len(signatures)} samples) to {output_path}")
     
     def load_signatures(self, signature_path: str) -> Dict[str, SourmashSignature]:
         """
@@ -341,27 +386,43 @@ class SourmashProfiler:
         logging.info(f"Loaded {len(signatures)} signatures from {signature_path}")
         return signatures
     
-    def export_to_metagrouper_format(self, signatures: Dict[str, SourmashSignature],
-                                    similarity_matrix: np.ndarray) -> Tuple[Dict, List[str]]:
+    def export_to_metagrouper_format(self, signatures: Dict[str, List[SourmashSignature]],
+                                    similarity_matrix: np.ndarray, 
+                                    use_k_size: Optional[int] = None) -> Tuple[Dict, List[str]]:
         """
         Convert sourmash results to MetaGrouper's expected format.
         
         Args:
-            signatures: Dictionary of signatures
+            signatures: Dictionary of signature lists
             similarity_matrix: Similarity matrix
+            use_k_size: Specific k-mer size to use (default: primary k-mer size)
             
         Returns:
             Tuple of (profiles dict, sample names list)
         """
         sample_names = list(signatures.keys())
         
+        # Select signatures for the specified k-mer size
+        if use_k_size is None:
+            use_k_size = self.k
+        
         # Convert signatures to a format compatible with MetaGrouper
         # We'll use the hash values as "k-mers" for compatibility
         profiles = {}
         
-        for sample_name, sig in signatures.items():
+        for sample_name, sig_list in signatures.items():
+            # Find signature with matching k-mer size
+            matching_sig = None
+            for sig in sig_list:
+                if sig.minhash.ksize == use_k_size:
+                    matching_sig = sig
+                    break
+            if matching_sig is None:
+                # Fall back to first signature if no exact match
+                matching_sig = sig_list[0]
+            
             # Get the MinHash object
-            mh = sig.minhash
+            mh = matching_sig.minhash
             
             # Get hashes as a proxy for k-mers
             if self.track_abundance:
@@ -375,12 +436,12 @@ class SourmashProfiler:
         
         return profiles, sample_names
     
-    def create_analysis_summary(self, signatures: Dict[str, SourmashSignature]) -> Dict:
+    def create_analysis_summary(self, signatures: Dict[str, List[SourmashSignature]]) -> Dict:
         """
         Create analysis summary statistics.
         
         Args:
-            signatures: Dictionary of signatures
+            signatures: Dictionary of signature lists
             
         Returns:
             Summary statistics dictionary
@@ -392,15 +453,26 @@ class SourmashProfiler:
             'num_hashes': self.num_hashes,
             'moltype': self.moltype,
             'track_abundance': self.track_abundance,
+            'additional_k_sizes': self.additional_k_sizes,
             'samples': {}
         }
         
-        for sample_name, sig in signatures.items():
-            mh = sig.minhash
-            summary['samples'][sample_name] = {
-                'num_hashes': len(mh),
-                'md5sum': sig.md5sum(),
-                'name': sig.name
+        for sample_name, sig_list in signatures.items():
+            sample_info = {
+                'num_signatures': len(sig_list),
+                'k_sizes': [sig.minhash.ksize for sig in sig_list],
+                'signatures': []
             }
+            
+            for sig in sig_list:
+                mh = sig.minhash
+                sample_info['signatures'].append({
+                    'k_size': mh.ksize,
+                    'num_hashes': len(mh),
+                    'md5sum': sig.md5sum(),
+                    'name': sig.name
+                })
+            
+            summary['samples'][sample_name] = sample_info
             
         return summary

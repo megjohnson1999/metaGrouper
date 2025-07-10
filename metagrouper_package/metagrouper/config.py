@@ -21,6 +21,10 @@ class ProfilingConfig:
     max_reads: Optional[int] = None
     min_kmer_freq: int = 1
     memory_efficient: bool = True
+    # Sourmash-specific parameters for high sensitivity
+    scaled: int = 100  # Higher sensitivity than default 1000
+    track_abundance: bool = False  # Disabled by default (more robust to PCR bias)
+    additional_k_sizes: Optional[List[int]] = None  # Additional k-mer sizes for multi-scale analysis
     
     def __post_init__(self):
         if self.k_size < 1 or self.k_size > 32:
@@ -29,6 +33,12 @@ class ProfilingConfig:
             raise ValueError(f"max_reads must be positive, got {self.max_reads}")
         if self.min_kmer_freq < 1:
             raise ValueError(f"min_kmer_freq must be positive, got {self.min_kmer_freq}")
+        if self.scaled < 1:
+            raise ValueError(f"scaled must be positive, got {self.scaled}")
+        
+        # Set default additional k-sizes for multi-scale analysis when using high sensitivity
+        if self.additional_k_sizes is None and self.scaled <= 100:
+            self.additional_k_sizes = [31, 51]  # Multi-scale analysis like successful previous approaches
 
 
 @dataclass
@@ -165,6 +175,14 @@ class MetaGrouperConfig:
         if hasattr(args, 'memory_efficient'):
             self.profiling.memory_efficient = args.memory_efficient and not getattr(args, 'no_memory_efficient', False)
         
+        # Sourmash-specific parameters
+        if hasattr(args, 'scaled') and args.scaled:
+            self.profiling.scaled = args.scaled
+        if hasattr(args, 'track_abundance') and hasattr(args, 'track_abundance'):
+            self.profiling.track_abundance = args.track_abundance
+        if hasattr(args, 'additional_k_sizes') and args.additional_k_sizes:
+            self.profiling.additional_k_sizes = args.additional_k_sizes
+        
         # Processing parameters
         if hasattr(args, 'processes') and args.processes:
             self.processing.n_processes = args.processes
@@ -208,6 +226,9 @@ class MetaGrouperConfig:
         summary.append(f"  Max reads per sample: {self.profiling.max_reads or 'unlimited'}")
         summary.append(f"  Min k-mer frequency: {self.profiling.min_kmer_freq}")
         summary.append(f"  Memory efficient: {self.profiling.memory_efficient}")
+        summary.append(f"  Sourmash scaled: {self.profiling.scaled}")
+        summary.append(f"  Track abundance: {self.profiling.track_abundance}")
+        summary.append(f"  Additional k-mer sizes: {self.profiling.additional_k_sizes or 'none'}")
         
         summary.append(f"Processing:")
         summary.append(f"  Processes: {self.processing.n_processes}")
@@ -284,12 +305,15 @@ def get_recommended_config(num_samples: int, total_file_size_gb: float) -> MetaG
     if num_samples > 100:
         config.profiling.k_size = 19  # Smaller k for large datasets
         config.profiling.min_kmer_freq = 3  # More aggressive filtering
+        config.profiling.scaled = 200  # Less sensitive for very large datasets
     elif num_samples > 50:
         config.profiling.k_size = 21  # Standard k
         config.profiling.min_kmer_freq = 2
+        config.profiling.scaled = 100  # High sensitivity
     else:
         config.profiling.k_size = 23  # Larger k for small datasets
         config.profiling.min_kmer_freq = 1
+        config.profiling.scaled = 50  # Very high sensitivity for small datasets
     
     # Adjust processing based on dataset size
     if total_file_size_gb > 10:

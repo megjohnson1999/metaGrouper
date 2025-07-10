@@ -37,6 +37,9 @@ Examples:
   # Generate comprehensive interactive report
   metagrouper samples/ -m metadata.csv --comprehensive-report -o results/
 
+  # High sensitivity analysis (robust to PCR bias)
+  metagrouper samples/ --scaled 100 --additional-k-sizes 31 51 -o results/
+
   # Quick test with reduced parameters
   metagrouper samples/ --kmer-size 15 --max-reads 1000 --permutations 99
 
@@ -85,6 +88,34 @@ For more information, see the tutorial: https://github.com/user/metagrouper/blob
         choices=["braycurtis", "jaccard", "cosine", "euclidean"],
         default="braycurtis",
         help="Distance metric for sample comparison (default: braycurtis)",
+    )
+    kmer_group.add_argument(
+        "--scaled",
+        type=int,
+        default=100,
+        help="Sourmash scaled parameter (1 in N hashes kept, default: 100 for high sensitivity)",
+    )
+    kmer_group.add_argument(
+        "--track-abundance",
+        action="store_true",
+        default=False,
+        help="Track k-mer abundances in sourmash sketches (more sensitive to PCR bias)",
+    )
+    kmer_group.add_argument(
+        "--no-track-abundance",
+        action="store_true",
+        help="Explicitly disable k-mer abundance tracking (default, more robust)",
+    )
+    kmer_group.add_argument(
+        "--additional-k-sizes",
+        nargs="+",
+        type=int,
+        help="Additional k-mer sizes for multi-scale analysis (e.g., --additional-k-sizes 31 51)",
+    )
+    kmer_group.add_argument(
+        "--save-signatures",
+        action="store_true",
+        help="Save sourmash signatures to .sig file",
     )
 
     # Phase 2: Metadata analysis options
