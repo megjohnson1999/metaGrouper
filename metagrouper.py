@@ -367,6 +367,7 @@ def run_analysis(args):
                 sample_names = json.load(f)
                 
             print(f"✅ Loaded results for {len(sample_names)} samples")
+            fastq_files = None  # Not needed when loading from previous results
             
         except FileNotFoundError as e:
             logging.error(f"Could not load saved results: {e}")
@@ -434,56 +435,57 @@ def run_analysis(args):
         additional_k_sizes=getattr(args, 'additional_k_sizes', None)
     )
     
-    # Process samples
-    print(f"🔬 Processing {len(fastq_files)} samples using {process_count} processes...")
-    start_time = time.time()
-    
-    # Process samples with sourmash
-    signatures = profiler.process_samples_parallel(fastq_files)
-    
-    # Use primary k-mer size for similarity analysis
-    similarity_matrix = profiler.compute_similarity_matrix(signatures, use_k_size=args.kmer_size)
-    
-    profiles, sample_names = profiler.export_to_metagrouper_format(
-        signatures, 
-        similarity_matrix,
-        use_k_size=args.kmer_size
-    )
-    failed_samples = []
-    
-    # Save signatures if requested
-    if args.save_signatures:
-        sig_path = output_path / "signatures.sig"
-        profiler.save_signatures(signatures, str(sig_path))
-        print(f"💾 Saved signatures to {sig_path}")
-    
-    processing_time = time.time() - start_time
-    success_count = len(profiles)
-    
-    print(f"✅ Processed {success_count}/{len(fastq_files)} samples in {processing_time:.1f}s")
-    if failed_samples:
-        print(f"❌ Failed samples: {', '.join(failed_samples)}")
-    
-    # Memory usage after processing
-    log_memory_usage("After k-mer profiling", initial_memory)
-    
-    if not profiles:
-        logging.error("No samples processed successfully")
-        return False
-    
-    # Memory usage report
-    print(f"💾 Using sourmash MinHash sketches for efficient memory usage")
-    
-    # Convert similarity to distance matrix
-    print(f"\n🔗 Converting similarity to distance matrix...")
-    start_time = time.time()
-    
-    # Convert similarity to distance matrix
-    distance_matrix = 1 - similarity_matrix
-    
-    similarity_time = time.time() - start_time
-    print(f"✅ Similarity matrix converted to distances in {similarity_time:.1f}s")
-    log_memory_usage("After similarity matrix conversion")
+    # Process samples (only if running Phase 1)
+    if 1 in phases_to_run:
+        print(f"🔬 Processing {len(fastq_files)} samples using {process_count} processes...")
+        start_time = time.time()
+        
+        # Process samples with sourmash
+        signatures = profiler.process_samples_parallel(fastq_files)
+        
+        # Use primary k-mer size for similarity analysis
+        similarity_matrix = profiler.compute_similarity_matrix(signatures, use_k_size=args.kmer_size)
+        
+        profiles, sample_names = profiler.export_to_metagrouper_format(
+            signatures, 
+            similarity_matrix,
+            use_k_size=args.kmer_size
+        )
+        failed_samples = []
+        
+        # Save signatures if requested
+        if args.save_signatures:
+            sig_path = output_path / "signatures.sig"
+            profiler.save_signatures(signatures, str(sig_path))
+            print(f"💾 Saved signatures to {sig_path}")
+        
+        processing_time = time.time() - start_time
+        success_count = len(profiles)
+        
+        print(f"✅ Processed {success_count}/{len(fastq_files)} samples in {processing_time:.1f}s")
+        if failed_samples:
+            print(f"❌ Failed samples: {', '.join(failed_samples)}")
+        
+        # Memory usage after processing
+        log_memory_usage("After k-mer profiling", initial_memory)
+        
+        if not profiles:
+            logging.error("No samples processed successfully")
+            return False
+        
+        # Memory usage report
+        print(f"💾 Using sourmash MinHash sketches for efficient memory usage")
+        
+        # Convert similarity to distance matrix
+        print(f"\n🔗 Converting similarity to distance matrix...")
+        start_time = time.time()
+        
+        # Convert similarity to distance matrix
+        distance_matrix = 1 - similarity_matrix
+        
+        similarity_time = time.time() - start_time
+        print(f"✅ Similarity matrix converted to distances in {similarity_time:.1f}s")
+        log_memory_usage("After similarity matrix conversion")
     
     # Save results
     save_results(profiles, distance_matrix, sample_names, args.output)
