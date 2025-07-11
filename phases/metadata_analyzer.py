@@ -468,7 +468,27 @@ class MetadataAnalyzer:
             self.metadata = self.metadata[~self.metadata.index.duplicated(keep='first')]
             logging.info(f"Removed duplicates, kept first occurrence for each sample ID")
         
-        self.metadata = self.metadata.reindex(self.sample_names)
+        # Convert sample names to match metadata index type
+        # If metadata index is numeric and sample names are strings, convert sample names to int
+        # If metadata index is string and sample names are numeric, convert to string
+        try:
+            if pd.api.types.is_integer_dtype(self.metadata.index):
+                # Try to convert sample names to integers
+                sample_names_converted = [int(name) for name in self.sample_names]
+                self.metadata = self.metadata.reindex(sample_names_converted)
+            elif pd.api.types.is_string_dtype(self.metadata.index):
+                # Convert sample names to strings (they usually already are)
+                sample_names_converted = [str(name) for name in self.sample_names]
+                self.metadata = self.metadata.reindex(sample_names_converted)
+            else:
+                # Default behavior - use as is
+                self.metadata = self.metadata.reindex(self.sample_names)
+        except (ValueError, TypeError) as e:
+            # If conversion fails, try converting metadata index to string to match sample names
+            logging.warning(f"Could not convert sample names to match metadata index type: {e}")
+            logging.info("Converting metadata index to string type for matching")
+            self.metadata.index = self.metadata.index.astype(str)
+            self.metadata = self.metadata.reindex(self.sample_names)
 
         logging.info(
             f"Loaded metadata for {len(self.metadata)} samples with "
