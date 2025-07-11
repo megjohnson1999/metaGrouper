@@ -267,6 +267,14 @@ Examples:
     parser.add_argument("--html-title", default="MetaGrouper Analysis",
                        help="Title for interactive HTML reports")
     
+    # Phase selection arguments
+    parser.add_argument("--phases", nargs="+", type=int, choices=[1, 2, 3, 4],
+                       help="Run specific phases only (e.g., --phases 2 3 to run only Phase 2 and 3)")
+    parser.add_argument("--skip-phases", nargs="+", type=int, choices=[1, 2, 3, 4],
+                       help="Skip specific phases (e.g., --skip-phases 1 to skip k-mer profiling)")
+    parser.add_argument("--load-from", 
+                       help="Load Phase 1 results from previous run directory (skip k-mer profiling)")
+    
     # Other arguments
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
     
@@ -284,43 +292,103 @@ def run_analysis(args):
     # Initial memory usage
     initial_memory = log_memory_usage("Initial memory usage")
     
-    # Validate input
-    if not Path(args.input_dir).exists():
-        logging.error(f"Input directory not found: {args.input_dir}")
-        return False
+    # Determine which phases to run based on arguments
+    phases_to_run = set([1, 2, 3, 4])  # Default: all phases
     
-    # Find FASTQ files
-    logging.info("Finding FASTQ files...")
-    fastq_files = find_fastq_files(args.input_dir)
-    if not fastq_files:
-        logging.error("No FASTQ files found")
+    if args.phases:
+        # If specific phases requested, run only those
+        phases_to_run = set(args.phases)
+        
+    if args.skip_phases:
+        # Remove skipped phases
+        phases_to_run -= set(args.skip_phases)
+        
+    if args.load_from:
+        # If loading from previous run, skip Phase 1
+        phases_to_run.discard(1)
+        
+    # Validate phase selection
+    if not phases_to_run:
+        logging.error("No phases selected to run")
         return False
-    
-    logging.info(f"Found {len(fastq_files)} samples")
+        
+    print(f"📋 Phases to run: {sorted(phases_to_run)}")
     
     # Create output directory
     output_path = Path(args.output)
     output_path.mkdir(parents=True, exist_ok=True)
     
+    # Initialize variables for later phases
+    profiles = None
+    distance_matrix = None
+    sample_names = None
+    fastq_files = None
+    
+    # Handle loading from previous run
+    if args.load_from and 1 not in phases_to_run:
+        print(f"\n📂 Loading Phase 1 results from: {args.load_from}")
+        load_path = Path(args.load_from)
+        
+        try:
+            # Load k-mer profiles
+            import pickle
+            import json
+            
+            with open(load_path / "kmer_profiles.pkl", "rb") as f:
+                profiles = pickle.load(f)
+            
+            # Load distance matrix
+            distance_matrix = np.load(load_path / "distance_matrix.npy")
+            
+            # Load sample names
+            with open(load_path / "sample_names.json", "r") as f:
+                sample_names = json.load(f)
+                
+            print(f"✅ Loaded results for {len(sample_names)} samples")
+            
+        except FileNotFoundError as e:
+            logging.error(f"Could not load saved results: {e}")
+            return False
+    
+    # Validate input for Phase 1
+    if 1 in phases_to_run:
+        if not Path(args.input_dir).exists():
+            logging.error(f"Input directory not found: {args.input_dir}")
+            return False
+    
+        # Find FASTQ files
+        logging.info("Finding FASTQ files...")
+        fastq_files = find_fastq_files(args.input_dir)
+        if not fastq_files:
+            logging.error("No FASTQ files found")
+            return False
+        
+        logging.info(f"Found {len(fastq_files)} samples")
+    
     # Get process count (auto-detect if not specified)
     process_count = get_process_count(args)
     
-    # Determine which phases to run
-    run_phase2 = args.metadata and PHASE2_AVAILABLE
-    run_phase3 = PHASE3_AVAILABLE  # Phase 3 can run without metadata
+    # Determine which phases to run (updated to use phase selection)
+    run_phase2 = 2 in phases_to_run and args.metadata and PHASE2_AVAILABLE
+    run_phase3 = 3 in phases_to_run and PHASE3_AVAILABLE  # Phase 3 can run without metadata
     
     print(f"📋 Analysis Plan:")
-    print(f"   Phase 1: K-mer profiling and similarity ✅")
-    print(f"   Phase 2: Metadata analysis {'✅' if run_phase2 else '❌ (no metadata provided)' if not args.metadata else '❌ (dependencies missing)'}")
-    print(f"   Phase 3: Assembly recommendations {'✅' if run_phase3 else '❌ (dependencies missing)'}")
+    print(f"   Phase 1: K-mer profiling and similarity {'✅' if 1 in phases_to_run else '⏭️  (skipped)'}")
+    print(f"   Phase 2: Metadata analysis {'✅' if run_phase2 else '⏭️  (skipped)' if 2 not in phases_to_run else '❌ (no metadata provided)' if not args.metadata else '❌ (dependencies missing)'}")
+    print(f"   Phase 3: Assembly recommendations {'✅' if run_phase3 else '⏭️  (skipped)' if 3 not in phases_to_run else '❌ (dependencies missing)'}")
+    run_phase4 = 4 in phases_to_run and (args.comprehensive_report or args.interactive)
+    print(f"   Phase 4: Interactive visualizations {'✅' if run_phase4 else '⏭️  (skipped)' if 4 not in phases_to_run else '❌ (not requested)'}")
     print(f"   Processing: {process_count} CPU cores")
+    if args.load_from:
+        print(f"   Loading Phase 1 results from: {args.load_from}")
     print()
     
     # =============================================================================
     # PHASE 1: K-mer Profiling and Similarity Analysis
     # =============================================================================
-    print("🧬 Phase 1: K-mer Profiling and Similarity Analysis")
-    print("-" * 60)
+    if 1 in phases_to_run:
+        print("🧬 Phase 1: K-mer Profiling and Similarity Analysis")
+        print("-" * 60)
     
     # Handle track_abundance logic (default to False for robustness to PCR bias)
     track_abundance = args.track_abundance and not getattr(args, 'no_track_abundance', False)
@@ -679,7 +747,7 @@ def run_analysis(args):
     # PHASE 4 (Enhanced): Comprehensive Interactive Report
     # =============================================================================
     
-    if args.comprehensive_report or args.interactive:
+    if (args.comprehensive_report or args.interactive) and 4 in phases_to_run:
         try:
             print(f"\n🌟 Generating comprehensive interactive report...")
             
