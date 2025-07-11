@@ -287,6 +287,7 @@ def run_analysis(args):
     setup_logging(args.verbose)
     
     print("🧬 MetaGrouper: K-mer Analysis for Optimal Metagenomic Assembly Grouping")
+    print("🔧 VERSION: 2024-07-11 Phase Selection Enhanced (DEBUGGING)")
     print("=" * 80)
     
     # Initial memory usage
