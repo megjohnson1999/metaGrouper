@@ -304,8 +304,16 @@ def run_analysis(args):
         phases_to_run -= set(args.skip_phases)
         
     if args.load_from:
-        # If loading from previous run, skip Phase 1
-        phases_to_run.discard(1)
+        # If loading from previous run, skip Phase 1 by default (unless explicitly requested)
+        if args.phases is None and args.skip_phases is None:
+            # Default behavior when using --load-from: skip Phase 1
+            phases_to_run.discard(1)
+        elif 1 in phases_to_run and args.phases and 1 in args.phases:
+            # User explicitly requested Phase 1 even with --load-from, warn them
+            print("⚠️  Warning: --load-from specified but Phase 1 is requested. Will run Phase 1 anyway.")
+        elif 1 in phases_to_run:
+            # Phase 1 is in the list but --load-from is specified, remove it
+            phases_to_run.discard(1)
         
     # Validate phase selection
     if not phases_to_run:
@@ -325,7 +333,7 @@ def run_analysis(args):
     fastq_files = None
     
     # Handle loading from previous run
-    if args.load_from and 1 not in phases_to_run:
+    if args.load_from:
         print(f"\n📂 Loading Phase 1 results from: {args.load_from}")
         load_path = Path(args.load_from)
         
