@@ -293,27 +293,39 @@ def run_analysis(args):
     initial_memory = log_memory_usage("Initial memory usage")
     
     # Determine which phases to run based on arguments
+    print(f"🔍 DEBUG: args.phases = {getattr(args, 'phases', 'NOT FOUND')}")
+    print(f"🔍 DEBUG: args.skip_phases = {getattr(args, 'skip_phases', 'NOT FOUND')}")
+    print(f"🔍 DEBUG: args.load_from = {getattr(args, 'load_from', 'NOT FOUND')}")
+    
     phases_to_run = set([1, 2, 3, 4])  # Default: all phases
+    print(f"🔍 DEBUG: Initial phases_to_run = {sorted(phases_to_run)}")
     
     if args.phases:
         # If specific phases requested, run only those
         phases_to_run = set(args.phases)
+        print(f"🔍 DEBUG: After --phases, phases_to_run = {sorted(phases_to_run)}")
         
     if args.skip_phases:
         # Remove skipped phases
         phases_to_run -= set(args.skip_phases)
+        print(f"🔍 DEBUG: After --skip-phases, phases_to_run = {sorted(phases_to_run)}")
         
     if args.load_from:
+        print(f"🔍 DEBUG: --load-from specified: {args.load_from}")
         # If loading from previous run, skip Phase 1 by default (unless explicitly requested)
         if args.phases is None and args.skip_phases is None:
             # Default behavior when using --load-from: skip Phase 1
             phases_to_run.discard(1)
+            print(f"🔍 DEBUG: Default --load-from behavior, phases_to_run = {sorted(phases_to_run)}")
         elif 1 in phases_to_run and args.phases and 1 in args.phases:
             # User explicitly requested Phase 1 even with --load-from, warn them
             print("⚠️  Warning: --load-from specified but Phase 1 is requested. Will run Phase 1 anyway.")
         elif 1 in phases_to_run:
             # Phase 1 is in the list but --load-from is specified, remove it
             phases_to_run.discard(1)
+            print(f"🔍 DEBUG: Removed Phase 1 due to --load-from, phases_to_run = {sorted(phases_to_run)}")
+    else:
+        print(f"🔍 DEBUG: No --load-from specified")
         
     # Validate phase selection
     if not phases_to_run:
