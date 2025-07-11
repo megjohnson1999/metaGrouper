@@ -296,6 +296,7 @@ def run_analysis(args):
     print(f"🔍 DEBUG: args.phases = {getattr(args, 'phases', 'NOT FOUND')}")
     print(f"🔍 DEBUG: args.skip_phases = {getattr(args, 'skip_phases', 'NOT FOUND')}")
     print(f"🔍 DEBUG: args.load_from = {getattr(args, 'load_from', 'NOT FOUND')}")
+    print(f"🔍 DEBUG: ALL ARGS: {vars(args)}")
     
     phases_to_run = set([1, 2, 3, 4])  # Default: all phases
     print(f"🔍 DEBUG: Initial phases_to_run = {sorted(phases_to_run)}")
