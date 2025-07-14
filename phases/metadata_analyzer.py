@@ -1173,11 +1173,15 @@ class MetadataAnalyzer:
                         len(np.unique(valid_values)) > 10
                     ):  # Only bin if many unique values
                         var_binned = self._adaptive_binning(valid_values, min_bin_size=30)
-                        var_array = np.full_like(var_array, np.nan)
-                        var_array[~np.isnan(var_array)] = var_binned
+                        
+                        # Create new array and assign binned values to non-NaN positions
+                        new_var_array = np.full(len(var_array), np.nan)
+                        valid_mask = ~np.isnan(var_array)
+                        new_var_array[valid_mask] = var_binned
+                        var_array = new_var_array
                         
                         # Log binning results
-                        unique_bins = np.unique(var_binned[~np.isnan(var_binned)])
+                        unique_bins = np.unique(var_binned)
                         bin_counts = [np.sum(var_binned == b) for b in unique_bins]
                         logging.info(f"Binned {variable} into {len(unique_bins)} groups: {bin_counts} samples each")
 
