@@ -971,8 +971,8 @@ class MetadataAnalyzer:
             
             if total_var > 0:
                 variance_ratio = between_group_var / total_var
-                # Penalize too many bins to avoid overfitting
-                score = variance_ratio - 0.05 * (n_bins - 2)
+                # Penalize too many bins to avoid overfitting (reduced penalty)
+                score = variance_ratio - 0.02 * (n_bins - 2)
                 
                 if score > best_score:
                     best_score = score
@@ -1172,7 +1172,7 @@ class MetadataAnalyzer:
                     if (
                         len(np.unique(valid_values)) > 10
                     ):  # Only bin if many unique values
-                        var_binned = self._adaptive_binning(valid_values, min_bin_size=30)
+                        var_binned = self._adaptive_binning(valid_values, min_bin_size=15, max_bins=10)
                         
                         # Create new array and assign binned values to non-NaN positions
                         new_var_array = np.full(len(var_array), np.nan)
