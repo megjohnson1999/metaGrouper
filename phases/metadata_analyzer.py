@@ -209,7 +209,7 @@ def filter_metadata_variables(
     auto_filter: bool = True,
     exclude_variables: Optional[List[str]] = None,
     include_variables: Optional[List[str]] = None,
-    max_unique_ratio: float = 0.5,
+    max_unique_ratio: float = 0.2,  # Reduced from 0.5 to 0.2
     min_unique_count: int = 2,
     max_missing_ratio: float = 0.2
 ) -> Tuple[List[str], Dict[str, str]]:
@@ -293,7 +293,12 @@ def filter_metadata_variables(
         # Too many unique values (likely continuous ID or noise)
         unique_ratio = unique_count / total_count
         if unique_ratio > max_unique_ratio:
-            # Check if high uniqueness is informative (e.g., patient IDs) vs noise
+            # Check if this is an individual-level identifier (patient IDs, etc.)
+            if unique_ratio > 0.8:  # >80% unique values
+                exclusion_reasons[column_name] = f"Individual-level identifier ({unique_ratio:.1%} unique values). Not suitable for grouping analysis"
+                continue
+            
+            # Check if high uniqueness is informative vs noise
             information_content = calculate_information_content(values)
             
             # Allow high uniqueness if it has high information content
@@ -337,15 +342,68 @@ class PermanovaAnalyzer:
         self.distance_matrix = distance_matrix
         self.sample_names = sample_names
         self.n_samples = len(sample_names)
+        
+        # Validate distance matrix
+        self._validate_distance_matrix()
+    
+    def _validate_distance_matrix(self):
+        """
+        Validate that the distance matrix meets PERMANOVA requirements.
+        
+        Checks:
+        - Square matrix
+        - Symmetric
+        - Non-negative values
+        - Zero diagonal
+        - Finite values (no NaN or inf)
+        """
+        # Check if square
+        if self.distance_matrix.shape[0] != self.distance_matrix.shape[1]:
+            raise ValueError(f"Distance matrix must be square. Got shape {self.distance_matrix.shape}")
+        
+        # Check size matches sample names
+        if self.distance_matrix.shape[0] != len(self.sample_names):
+            raise ValueError(f"Distance matrix size ({self.distance_matrix.shape[0]}) doesn't match "
+                           f"number of samples ({len(self.sample_names)})")
+        
+        # Check for finite values
+        if not np.all(np.isfinite(self.distance_matrix)):
+            raise ValueError("Distance matrix contains NaN or infinite values")
+        
+        # Check symmetry (with tolerance for floating point errors)
+        if not np.allclose(self.distance_matrix, self.distance_matrix.T, rtol=1e-10):
+            # Make it symmetric by averaging with transpose
+            logging.warning("Distance matrix was not perfectly symmetric. Forcing symmetry.")
+            self.distance_matrix = (self.distance_matrix + self.distance_matrix.T) / 2
+        
+        # Check diagonal is zero
+        if not np.allclose(np.diag(self.distance_matrix), 0, atol=1e-10):
+            logging.warning("Distance matrix diagonal contains non-zero values. Setting to zero.")
+            np.fill_diagonal(self.distance_matrix, 0)
+        
+        # Check non-negative
+        if np.any(self.distance_matrix < 0):
+            raise ValueError("Distance matrix contains negative values")
+        
+        # Check for variation
+        if np.allclose(self.distance_matrix, 0):
+            raise ValueError("Distance matrix contains all zeros (no variation)")
 
     def _calculate_sum_of_squares(
         self, distance_matrix: np.ndarray, groups: np.ndarray
     ) -> Tuple[float, float]:
-        """Calculate within-group and total sum of squares."""
+        """
+        Calculate within-group and total sum of squares for PERMANOVA.
+        
+        Uses the correct formulation from Anderson (2001):
+        - Total SS = (1/n) * sum of squared distances / 2
+        - Within SS = sum over groups of (1/n_g) * sum of squared distances within group / 2
+        """
         n = distance_matrix.shape[0]
 
         # Total sum of squares
-        total_ss = np.sum(distance_matrix**2) / n
+        # SS_T = (1/n) * sum(d_ij^2) / 2
+        total_ss = np.sum(distance_matrix**2) / (2 * n)
 
         # Within-group sum of squares
         within_ss = 0
@@ -353,11 +411,139 @@ class PermanovaAnalyzer:
 
         for group in unique_groups:
             group_indices = np.where(groups == group)[0]
-            if len(group_indices) > 1:
+            n_group = len(group_indices)
+            
+            if n_group > 1:
+                # Extract submatrix for this group
                 group_distances = distance_matrix[np.ix_(group_indices, group_indices)]
-                within_ss += np.sum(group_distances**2) / len(group_indices)
+                # SS_W,g = (1/n_g) * sum(d_ij^2 within group) / 2
+                within_ss += np.sum(group_distances**2) / (2 * n_group)
 
         return within_ss, total_ss
+    
+    def permdisp_test(self, distance_matrix: np.ndarray, groups: np.ndarray, n_permutations: int = 999) -> Dict[str, Any]:
+        """
+        PERMDISP test for homogeneity of multivariate dispersions.
+        
+        Tests the null hypothesis that groups have the same dispersion (variance).
+        This is an important assumption check for PERMANOVA.
+        
+        Based on Anderson (2006) "Distance-based tests for homogeneity of multivariate dispersions"
+        """
+        n = distance_matrix.shape[0]
+        unique_groups = np.unique(groups)
+        n_groups = len(unique_groups)
+        
+        if n_groups < 2:
+            return {"f_statistic": np.nan, "p_value": np.nan, "warning": None}
+        
+        # Calculate spatial median (centroid) for each group using PCoA
+        # First, convert distance matrix to coordinates using classical MDS
+        from sklearn.manifold import MDS
+        
+        # Ensure symmetric matrix
+        dist_symmetric = (distance_matrix + distance_matrix.T) / 2
+        np.fill_diagonal(dist_symmetric, 0)
+        
+        # Use MDS to get coordinates (using as many dimensions as needed)
+        n_components = min(n - 1, 10)  # Use up to 10 dimensions
+        mds = MDS(n_components=n_components, dissimilarity='precomputed', random_state=42)
+        coords = mds.fit_transform(dist_symmetric)
+        
+        # Calculate centroid for each group and distances to centroid
+        group_dispersions = {}
+        all_distances_to_centroid = np.zeros(n)
+        
+        for group in unique_groups:
+            group_mask = groups == group
+            group_coords = coords[group_mask]
+            
+            # Calculate spatial median (more robust than mean)
+            group_centroid = np.median(group_coords, axis=0)
+            
+            # Calculate distances from each point to group centroid
+            distances = np.sqrt(np.sum((group_coords - group_centroid)**2, axis=1))
+            group_dispersions[group] = distances
+            all_distances_to_centroid[group_mask] = distances
+        
+        # Perform ANOVA on distances to centroid
+        # Calculate within-group and between-group sum of squares
+        grand_mean = np.mean(all_distances_to_centroid)
+        
+        ss_total = np.sum((all_distances_to_centroid - grand_mean)**2)
+        ss_within = 0
+        
+        for group in unique_groups:
+            group_distances = group_dispersions[group]
+            group_mean = np.mean(group_distances)
+            ss_within += np.sum((group_distances - group_mean)**2)
+        
+        ss_between = ss_total - ss_within
+        
+        # Degrees of freedom
+        df_between = n_groups - 1
+        df_within = n - n_groups
+        
+        if df_within <= 0:
+            return {"f_statistic": np.nan, "p_value": np.nan, "warning": "Insufficient degrees of freedom"}
+        
+        # F-statistic
+        ms_between = ss_between / df_between
+        ms_within = ss_within / df_within
+        f_observed = ms_between / ms_within if ms_within > 0 else np.nan
+        
+        # Permutation test
+        f_permuted = []
+        for _ in range(n_permutations):
+            # Permute group labels
+            perm_groups = np.random.permutation(groups)
+            
+            # Recalculate F-statistic with permuted groups
+            perm_distances = np.zeros(n)
+            for group in unique_groups:
+                group_mask = perm_groups == group
+                if np.sum(group_mask) > 0:
+                    group_coords = coords[group_mask]
+                    group_centroid = np.median(group_coords, axis=0)
+                    distances = np.sqrt(np.sum((group_coords - group_centroid)**2, axis=1))
+                    perm_distances[group_mask] = distances
+            
+            # Calculate F for permuted data
+            perm_mean = np.mean(perm_distances)
+            perm_ss_total = np.sum((perm_distances - perm_mean)**2)
+            perm_ss_within = 0
+            
+            for group in unique_groups:
+                group_mask = perm_groups == group
+                if np.sum(group_mask) > 0:
+                    group_distances = perm_distances[group_mask]
+                    group_mean = np.mean(group_distances)
+                    perm_ss_within += np.sum((group_distances - group_mean)**2)
+            
+            perm_ss_between = perm_ss_total - perm_ss_within
+            perm_ms_between = perm_ss_between / df_between
+            perm_ms_within = perm_ss_within / df_within
+            
+            if perm_ms_within > 0:
+                f_perm = perm_ms_between / perm_ms_within
+                f_permuted.append(f_perm)
+        
+        # Calculate p-value
+        if f_permuted and not np.isnan(f_observed):
+            p_value = (np.sum(np.array(f_permuted) >= f_observed) + 1) / (len(f_permuted) + 1)
+        else:
+            p_value = np.nan
+        
+        # Determine warning
+        warning = None
+        if p_value < 0.05:
+            warning = "Groups have significantly different dispersions (heterogeneous variances). PERMANOVA results may be confounded."
+        
+        return {
+            "f_statistic": f_observed,
+            "p_value": p_value,
+            "warning": warning
+        }
 
     def permanova_test(
         self, metadata_variable: np.ndarray, n_permutations: int = 999
@@ -398,6 +584,25 @@ class PermanovaAnalyzer:
 
         # R-squared (proportion of variation explained)
         r_squared = between_ss / total_ss
+        
+        # Adjusted R-squared (penalizes for degrees of freedom)
+        # Formula: R²_adj = 1 - (1-R²) * (n-1)/(n-k-1)
+        # where n = number of samples, k = number of groups - 1
+        if n_samples > df_between + 1:
+            r_squared_adj = 1 - (1 - r_squared) * (n_samples - 1) / (n_samples - df_between - 1)
+        else:
+            r_squared_adj = r_squared  # Fallback when adjustment impossible
+        
+        # Omega squared (ω²) - less biased effect size for ANOVA-type designs
+        # Formula: ω² = (SS_between - df_between * MS_within) / (SS_total + MS_within)
+        # This is more conservative than η² (which is equivalent to R²)
+        ms_within = within_ss / df_within if df_within > 0 else 0
+        omega_squared = max(0, (between_ss - df_between * ms_within) / (total_ss + ms_within))
+        
+        # Partial omega squared for comparison
+        # Formula: ω²_p = (SS_between - df_between * MS_within) / (SS_between + (n - df_between) * MS_within)
+        partial_omega_squared = max(0, (between_ss - df_between * ms_within) / 
+                                   (between_ss + (n_samples - df_between) * ms_within)) if ms_within > 0 else 0
 
         # Permutation test
         f_permuted = []
@@ -421,12 +626,41 @@ class PermanovaAnalyzer:
         else:
             p_value = np.nan
 
+        # Effect size categorization based on omega squared (more conservative)
+        # Using Cohen's f guidelines converted to ω²: small=0.01, medium=0.06, large=0.14
+        if omega_squared < 0.01:
+            effect_size = "negligible"
+        elif omega_squared < 0.06:
+            effect_size = "small"
+        elif omega_squared < 0.14:
+            effect_size = "medium"
+        else:
+            effect_size = "large"
+        
+        # Power analysis warning
+        power_warning = None
+        if n_groups > 2:
+            expected_samples_per_group = n_samples / n_groups
+            if expected_samples_per_group < 10:
+                power_warning = f"Low statistical power: {expected_samples_per_group:.1f} samples per group (recommended: ≥10)"
+        
+        # Run PERMDISP test for homogeneity of dispersions
+        permdisp_result = self.permdisp_test(valid_distance_matrix, valid_groups, n_permutations=min(99, n_permutations))
+        
         return {
             "f_statistic": f_observed,
             "p_value": p_value,
             "r_squared": r_squared,
+            "r_squared_adj": r_squared_adj,
+            "omega_squared": omega_squared,
+            "partial_omega_squared": partial_omega_squared,
+            "effect_size": effect_size,
+            "power_warning": power_warning,
             "n_samples": n_samples,
             "n_groups": n_groups,
+            "permdisp_f": permdisp_result["f_statistic"],
+            "permdisp_p": permdisp_result["p_value"],
+            "variance_warning": permdisp_result["warning"]
         }
 
 
@@ -506,6 +740,255 @@ class MetadataAnalyzer:
             if len(group_data) < 10:
                 warnings.warn(f"Group '{group_name}' has only {len(group_data)} samples. "
                              f"PERMANOVA requires ≥10 samples per group for reliable results.")
+    
+    def validate_categorical_variable(self, var_data, variable_name, min_group_size=10, max_group_ratio=0.2):
+        """
+        Validate categorical variable suitability for PERMANOVA analysis.
+        
+        Args:
+            var_data: Series of categorical data
+            variable_name: Name of the variable
+            min_group_size: Minimum samples per group (default: 10)
+            max_group_ratio: Maximum ratio of groups to samples (default: 0.2)
+            
+        Returns:
+            dict: Validation results with 'valid', 'reason', and 'stats' keys
+        """
+        valid_data = var_data.dropna()
+        n_samples = len(valid_data)
+        
+        if n_samples < min_group_size * 2:
+            return {
+                'valid': False,
+                'reason': f'Too few samples ({n_samples}) for meaningful grouping analysis',
+                'stats': {'n_samples': n_samples, 'n_groups': 0}
+            }
+        
+        # Get group counts
+        group_counts = valid_data.value_counts()
+        n_groups = len(group_counts)
+        
+        # Check group count ratio
+        group_ratio = n_groups / n_samples
+        if group_ratio > max_group_ratio:
+            return {
+                'valid': False,
+                'reason': f'Too many groups ({n_groups}) relative to samples ({n_samples}). '
+                         f'Ratio {group_ratio:.2f} exceeds maximum {max_group_ratio}',
+                'stats': {'n_samples': n_samples, 'n_groups': n_groups, 'group_ratio': group_ratio}
+            }
+        
+        # Check minimum group sizes
+        small_groups = group_counts[group_counts < min_group_size]
+        if len(small_groups) > 0:
+            small_group_ratio = len(small_groups) / n_groups
+            if small_group_ratio > 0.5:  # More than half the groups are too small
+                return {
+                    'valid': False,
+                    'reason': f'{len(small_groups)} of {n_groups} groups have <{min_group_size} samples. '
+                             f'Groups with small sizes: {dict(small_groups)}',
+                    'stats': {'n_samples': n_samples, 'n_groups': n_groups, 'small_groups': len(small_groups)}
+                }
+        
+        # Check for individual-level variables (like patient IDs)
+        if n_groups > n_samples * 0.8:  # >80% of samples have unique values
+            return {
+                'valid': False,
+                'reason': f'Variable appears to be individual-level identifier '
+                         f'({n_groups} groups for {n_samples} samples). '
+                         f'Not suitable for grouping analysis',
+                'stats': {'n_samples': n_samples, 'n_groups': n_groups, 'uniqueness': n_groups/n_samples}
+            }
+        
+        # Check for common individual-level identifier patterns
+        variable_lower = variable_name.lower()
+        individual_patterns = [
+            'patient_id', 'subject_id', 'participant_id', 'sample_id', 'cambridge_patient_id',
+            'id_', '_id', 'uuid', 'barcode', 'accession', 'identifier'
+        ]
+        
+        if any(pattern in variable_lower for pattern in individual_patterns):
+            if n_groups > n_samples * 0.5:  # >50% unique for ID-like variables
+                return {
+                    'valid': False,
+                    'reason': f'Variable name suggests individual-level identifier '
+                             f'({n_groups} groups for {n_samples} samples). '
+                             f'Not suitable for grouping analysis',
+                    'stats': {'n_samples': n_samples, 'n_groups': n_groups, 'uniqueness': n_groups/n_samples}
+                }
+        
+        return {
+            'valid': True,
+            'reason': 'Variable passes validation checks',
+            'stats': {
+                'n_samples': n_samples,
+                'n_groups': n_groups,
+                'group_ratio': group_ratio,
+                'min_group_size': group_counts.min(),
+                'max_group_size': group_counts.max(),
+                'mean_group_size': group_counts.mean()
+            }
+        }
+    
+    def _apply_multiple_testing_correction(self, results_df: pd.DataFrame, method: str = 'fdr_bh') -> pd.DataFrame:
+        """
+        Apply multiple testing correction to p-values.
+        
+        Args:
+            results_df: DataFrame with p_value column
+            method: Correction method ('fdr_bh', 'fdr_by', 'bonferroni', 'holm')
+                   - 'fdr_bh': Benjamini-Hochberg FDR (default, less conservative)
+                   - 'fdr_by': Benjamini-Yekutieli FDR (more conservative) 
+                   - 'bonferroni': Bonferroni correction (most conservative)
+                   - 'holm': Holm-Bonferroni (step-down method)
+        
+        Returns:
+            DataFrame with added p_adjusted column
+        """
+        # Get valid p-values (exclude NaN)
+        valid_mask = results_df['p_value'].notna()
+        valid_p_values = results_df.loc[valid_mask, 'p_value'].values
+        
+        if len(valid_p_values) == 0:
+            results_df['p_adjusted'] = np.nan
+            return results_df
+        
+        # Apply correction using statsmodels if available, otherwise implement simple methods
+        try:
+            from statsmodels.stats.multitest import multipletests
+            
+            # Apply correction
+            rejected, adjusted_p, alpha_sidak, alpha_bonf = multipletests(
+                valid_p_values, alpha=0.05, method=method
+            )
+            
+            # Add to dataframe
+            results_df.loc[valid_mask, 'p_adjusted'] = adjusted_p
+            results_df.loc[valid_mask, 'significant_after_correction'] = rejected
+            
+        except ImportError:
+            # Fallback to manual implementation
+            logging.warning("statsmodels not available. Using manual correction methods.")
+            
+            if method == 'bonferroni':
+                # Bonferroni: p_adj = p * n_tests
+                n_tests = len(valid_p_values)
+                adjusted_p = np.minimum(valid_p_values * n_tests, 1.0)
+                results_df.loc[valid_mask, 'p_adjusted'] = adjusted_p
+                
+            elif method == 'holm':
+                # Holm-Bonferroni: step-down procedure
+                n_tests = len(valid_p_values)
+                sorted_indices = np.argsort(valid_p_values)
+                sorted_p = valid_p_values[sorted_indices]
+                
+                # Apply Holm correction
+                adjusted_p = np.zeros_like(sorted_p)
+                for i in range(len(sorted_p)):
+                    adjusted_p[i] = min(sorted_p[i] * (n_tests - i), 1.0)
+                    if i > 0:
+                        adjusted_p[i] = max(adjusted_p[i], adjusted_p[i-1])
+                
+                # Restore original order
+                results_df.loc[valid_mask, 'p_adjusted'] = adjusted_p[np.argsort(sorted_indices)]
+                
+            else:
+                # Default to Bonferroni if method not implemented
+                logging.warning(f"Method '{method}' not implemented. Using Bonferroni correction.")
+                n_tests = len(valid_p_values)
+                adjusted_p = np.minimum(valid_p_values * n_tests, 1.0)
+                results_df.loc[valid_mask, 'p_adjusted'] = adjusted_p
+            
+            # Mark significance
+            results_df.loc[valid_mask, 'significant_after_correction'] = results_df.loc[valid_mask, 'p_adjusted'] < 0.05
+        
+        # Fill NaN for invalid p-values
+        results_df.loc[~valid_mask, 'p_adjusted'] = np.nan
+        results_df.loc[~valid_mask, 'significant_after_correction'] = False
+        
+        # Add correction method info
+        results_df['correction_method'] = method
+        
+        return results_df
+    
+    def _adaptive_binning(self, values, min_bin_size=30, max_bins=5):
+        """
+        Create adaptive bins for continuous variables that:
+        1. Ensure minimum sample size per bin for statistical power
+        2. Maximize between-group variance
+        3. Respect data distribution
+        
+        Args:
+            values: Array of continuous values (no NaN)
+            min_bin_size: Minimum samples per bin (default: 30)
+            max_bins: Maximum number of bins (default: 5)
+            
+        Returns:
+            Array of bin assignments (0, 1, 2, ...)
+        """
+        n_samples = len(values)
+        
+        # Determine optimal number of bins
+        max_possible_bins = min(max_bins, n_samples // min_bin_size)
+        if max_possible_bins < 2:
+            # Not enough samples to bin meaningfully
+            return np.zeros(n_samples, dtype=int)
+        
+        # Try different numbers of bins and pick the best
+        best_bins = 2
+        best_score = -1
+        
+        for n_bins in range(2, max_possible_bins + 1):
+            # Create quantile-based bins
+            quantiles = np.linspace(0, 100, n_bins + 1)
+            bin_edges = np.percentile(values, quantiles)
+            
+            # Handle edge case where values are identical
+            if len(np.unique(bin_edges)) != len(bin_edges):
+                continue
+                
+            # Assign bins
+            bin_assignments = np.digitize(values, bin_edges[1:-1])
+            
+            # Check minimum bin size requirement
+            bin_counts = np.bincount(bin_assignments)
+            if np.any(bin_counts < min_bin_size):
+                continue
+            
+            # Calculate between-group variance score
+            # Higher score = better separation
+            total_var = np.var(values)
+            between_group_var = 0
+            
+            for bin_idx in range(n_bins):
+                mask = bin_assignments == bin_idx
+                if np.sum(mask) > 0:
+                    bin_mean = np.mean(values[mask])
+                    bin_size = np.sum(mask)
+                    between_group_var += bin_size * (bin_mean - np.mean(values)) ** 2
+            
+            between_group_var /= n_samples
+            
+            if total_var > 0:
+                variance_ratio = between_group_var / total_var
+                # Penalize too many bins to avoid overfitting
+                score = variance_ratio - 0.05 * (n_bins - 2)
+                
+                if score > best_score:
+                    best_score = score
+                    best_bins = n_bins
+        
+        # Create final binning with optimal number of bins
+        quantiles = np.linspace(0, 100, best_bins + 1)
+        bin_edges = np.percentile(values, quantiles)
+        
+        # Ensure unique edges
+        bin_edges = np.unique(bin_edges)
+        
+        # Final bin assignment
+        bin_assignments = np.digitize(values, bin_edges[1:-1])
+        
+        return bin_assignments
 
     def generate_filtering_report(
         self, 
@@ -647,7 +1130,31 @@ class MetadataAnalyzer:
 
             # Validate sample size for categorical variables
             if var_data.dtype == "object":
-                # Check group sizes before analysis
+                # Validate categorical variable suitability
+                validation = self.validate_categorical_variable(var_data, variable)
+                
+                if not validation['valid']:
+                    logging.warning(f"Skipping variable '{variable}': {validation['reason']}")
+                    # Still add to results but with warning flags
+                    result = {
+                        "variable": variable,
+                        "variable_type": "categorical",
+                        "f_statistic": np.nan,
+                        "p_value": np.nan,
+                        "r_squared": np.nan,
+                        "missing_count": var_data.isna().sum(),
+                        "validation_warning": validation['reason'],
+                        "n_groups": validation['stats'].get('n_groups', 0),
+                        "valid_samples": validation['stats'].get('n_samples', 0),
+                        "min_group_size": validation['stats'].get('min_group_size', 0),
+                        "max_group_size": validation['stats'].get('max_group_size', 0),
+                        "mean_group_size": validation['stats'].get('mean_group_size', 0)
+                    }
+                    results.append(result)
+                    self.permanova_results[variable] = result
+                    continue
+                
+                # Check group sizes before analysis (existing validation)
                 groups = var_data.dropna().groupby(var_data.dropna()).apply(list).to_dict()
                 self.validate_sample_size(groups)
                 
@@ -660,17 +1167,19 @@ class MetadataAnalyzer:
                 # Numerical variable - bin into categories for PERMANOVA
                 var_array = var_data.values
                 if not np.all(np.isnan(var_array)):
-                    # Create quantile-based bins
+                    # Use adaptive binning strategy
                     valid_values = var_array[~np.isnan(var_array)]
                     if (
                         len(np.unique(valid_values)) > 10
                     ):  # Only bin if many unique values
-                        quantiles = np.percentile(valid_values, [33, 67])
-                        var_binned = np.full_like(var_array, np.nan)
-                        var_binned[~np.isnan(var_array)] = np.digitize(
-                            valid_values, quantiles
-                        )
-                        var_array = var_binned
+                        var_binned = self._adaptive_binning(valid_values, min_bin_size=30)
+                        var_array = np.full_like(var_array, np.nan)
+                        var_array[~np.isnan(var_array)] = var_binned
+                        
+                        # Log binning results
+                        unique_bins = np.unique(var_binned[~np.isnan(var_binned)])
+                        bin_counts = [np.sum(var_binned == b) for b in unique_bins]
+                        logging.info(f"Binned {variable} into {len(unique_bins)} groups: {bin_counts} samples each")
 
             # Run PERMANOVA
             result = permanova.permanova_test(var_array, n_permutations)
@@ -681,6 +1190,25 @@ class MetadataAnalyzer:
                 else "numerical"
             )
             result["missing_count"] = self.metadata[variable].isna().sum()
+            
+            # Add group information
+            valid_groups = var_array[~np.isnan(var_array)]
+            if len(valid_groups) > 0:
+                unique_groups = np.unique(valid_groups)
+                result["n_groups"] = len(unique_groups)
+                result["valid_samples"] = len(valid_groups)
+                
+                # Add group size distribution for better interpretation
+                group_sizes = [np.sum(valid_groups == g) for g in unique_groups]
+                result["min_group_size"] = min(group_sizes)
+                result["max_group_size"] = max(group_sizes)
+                result["mean_group_size"] = np.mean(group_sizes)
+            else:
+                result["n_groups"] = 0
+                result["valid_samples"] = 0
+                result["min_group_size"] = 0
+                result["max_group_size"] = 0
+                result["mean_group_size"] = 0
 
             results.append(result)
             self.permanova_results[variable] = result
@@ -688,7 +1216,12 @@ class MetadataAnalyzer:
         # Create results DataFrame
         results_df = pd.DataFrame(results)
         if not results_df.empty:
-            results_df = results_df.sort_values("r_squared", ascending=False)
+            # Apply multiple testing correction
+            results_df = self._apply_multiple_testing_correction(results_df)
+            
+            # Sort by adjusted R² if available, otherwise by regular R²
+            sort_column = "r_squared_adj" if "r_squared_adj" in results_df.columns else "r_squared"
+            results_df = results_df.sort_values(sort_column, ascending=False, na_position='last')
 
         return results_df
 
@@ -1046,7 +1579,7 @@ def generate_summary_report(
         # Variable importance section
         f.write("## Variable Importance (PERMANOVA Results)\n\n")
         f.write(
-            "Variables ranked by proportion of variation explained (R-squared):\n\n"
+            "Variables ranked by adjusted R-squared (penalized for degrees of freedom):\n\n"
         )
 
         if not results_df.empty:
@@ -1067,13 +1600,58 @@ def generate_summary_report(
                     )
                 )
 
+                # Show effect sizes
+                r_squared_text = f"R² = {row['r_squared']:.3f}"
+                if 'r_squared_adj' in row and not pd.isna(row['r_squared_adj']):
+                    r_squared_text += f", R²_adj = {row['r_squared_adj']:.3f}"
+                if 'omega_squared' in row and not pd.isna(row['omega_squared']):
+                    r_squared_text += f", ω² = {row['omega_squared']:.3f}"
+                
+                # Add effect size
+                effect_size_text = ""
+                if 'effect_size' in row and not pd.isna(row['effect_size']):
+                    effect_size_text = f" ({row['effect_size']} effect)"
+                
+                # Add adjusted p-value if available
+                p_value_text = f"p = {row['p_value']:.3f}"
+                if 'p_adjusted' in row and not pd.isna(row['p_adjusted']):
+                    p_value_text += f" (p_adj = {row['p_adjusted']:.3f})"
+                
                 f.write(
-                    f"- **{row['variable']}**: R² = {row['r_squared']:.3f}, "
-                    f"p = {row['p_value']:.3f}{significance}\n"
+                    f"- **{row['variable']}**: {r_squared_text}, "
+                    f"{p_value_text}{significance}{effect_size_text}\n"
                 )
                 f.write(f"  - Type: {row['variable_type']}\n")
-                f.write(f"  - Valid samples: {row['n_samples']}\n")
-                f.write(f"  - Groups: {row['n_groups']}\n\n")
+                f.write(f"  - Valid samples: {row.get('valid_samples', row['n_samples'])}\n")
+                f.write(f"  - Groups: {row.get('n_groups', 'N/A')}\n")
+                
+                # Add group size information if available
+                if 'min_group_size' in row and row['min_group_size'] > 0:
+                    f.write(f"  - Group sizes: {row['min_group_size']}-{row['max_group_size']} "
+                           f"(mean: {row['mean_group_size']:.1f})\n")
+                
+                # Add power warning if present
+                if 'power_warning' in row and row['power_warning'] is not None:
+                    f.write(f"  - ⚠️  {row['power_warning']}\n")
+                
+                # Add PERMDISP results
+                if 'permdisp_p' in row and not pd.isna(row['permdisp_p']):
+                    f.write(f"  - PERMDISP: F={row['permdisp_f']:.3f}, p={row['permdisp_p']:.3f}\n")
+                
+                # Add variance warning if present
+                if 'variance_warning' in row and row['variance_warning'] is not None:
+                    f.write(f"  - ⚠️  {row['variance_warning']}\n")
+                
+                f.write("\n")
+            
+            # Add warnings section for invalid variables
+            warning_results = results_df[results_df['validation_warning'].notna()] if 'validation_warning' in results_df.columns else pd.DataFrame()
+            if not warning_results.empty:
+                f.write("## Variables with Statistical Concerns\n\n")
+                f.write("The following variables were flagged with statistical concerns:\n\n")
+                for _, row in warning_results.iterrows():
+                    f.write(f"- **{row['variable']}**: {row['validation_warning']}\n")
+                f.write("\n")
         else:
             f.write("No valid results found.\n\n")
 
@@ -1136,11 +1714,32 @@ def generate_summary_report(
             "- **R-squared**: Proportion of variation in sample composition explained by the variable\n"
         )
         f.write(
+            "- **R-squared_adj**: Adjusted R-squared that penalizes for high numbers of groups\n"
+        )
+        f.write(
+            "- **Omega squared (ω²)**: Less biased effect size measure (preferred over R²)\n"
+        )
+        f.write(
+            "- **Effect size**: Based on ω² (negligible <0.01, small <0.06, medium <0.14, large ≥0.14)\n"
+        )
+        f.write(
             "- **p-value**: Statistical significance (< 0.05 is typically significant)\n"
+        )
+        f.write(
+            "- **p_adjusted**: P-value after multiple testing correction (FDR/Bonferroni)\n"
+        )
+        f.write(
+            "- **Group sizes**: Range of samples per group (minimum 10 recommended for reliable results)\n"
+        )
+        f.write(
+            "- **PERMDISP**: Test for homogeneity of dispersions (p<0.05 indicates heterogeneous variances)\n"
         )
         f.write(
             "- **Silhouette score**: Quality of clustering (higher is better, > 0.5 is good)\n"
         )
         f.write("- Significance codes: *** p<0.001, ** p<0.01, * p<0.05, . p<0.1\n")
+        f.write("\n**Note**: Variables with >20% of samples as unique groups may show inflated R² values.\n")
+        f.write("**Power**: Variables with <10 samples per group may have unreliable results.\n")
+        f.write("**Assumptions**: PERMANOVA assumes homogeneous dispersions. Check PERMDISP results.\n")
 
     logging.info(f"Summary report saved to {output_path}")
