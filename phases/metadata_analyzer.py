@@ -359,6 +359,116 @@ class PermanovaAnalyzer:
 
         return within_ss, total_ss
 
+    def permdisp_test(
+        self, metadata_variable: np.ndarray, n_permutations: int = 999
+    ) -> Dict[str, float]:
+        """
+        Perform PERMDISP test for homogeneity of dispersions.
+        Tests if groups have equal variances in multivariate space.
+        """
+        # Remove samples with missing metadata
+        valid_indices = ~pd.isna(metadata_variable)
+        if not np.any(valid_indices):
+            return {"f_statistic": np.nan, "p_value": np.nan}
+            
+        valid_distance_matrix = self.distance_matrix[
+            np.ix_(valid_indices, valid_indices)
+        ]
+        valid_metadata = metadata_variable[valid_indices]
+        groups = np.unique(valid_metadata)
+        
+        if len(groups) < 2:
+            return {"f_statistic": np.nan, "p_value": np.nan}
+            
+        # Calculate group centroids using PCoA
+        from sklearn.decomposition import PCA
+        from scipy.spatial.distance import squareform, pdist
+        
+        # Convert distance matrix to embedding
+        n_components = min(len(valid_metadata) - 1, 10)
+        mds = MDS(n_components=n_components, dissimilarity='precomputed', random_state=42)
+        embedding = mds.fit_transform(valid_distance_matrix)
+        
+        # Calculate distances to group centroids
+        group_dispersions = {}
+        for group in groups:
+            group_mask = valid_metadata == group
+            if np.sum(group_mask) < 2:
+                continue
+                
+            # Calculate centroid
+            group_embedding = embedding[group_mask]
+            centroid = np.mean(group_embedding, axis=0)
+            
+            # Calculate distances to centroid
+            distances = np.sqrt(np.sum((group_embedding - centroid) ** 2, axis=1))
+            group_dispersions[group] = distances
+            
+        # Perform F-test on dispersions
+        all_dispersions = []
+        group_labels = []
+        for group, dispersions in group_dispersions.items():
+            all_dispersions.extend(dispersions)
+            group_labels.extend([group] * len(dispersions))
+            
+        all_dispersions = np.array(all_dispersions)
+        group_labels = np.array(group_labels)
+        
+        # Calculate F-statistic
+        observed_f = self._calculate_f_statistic_dispersions(all_dispersions, group_labels)
+        
+        # Permutation test
+        f_permuted = []
+        for _ in range(n_permutations):
+            perm_labels = np.random.permutation(group_labels)
+            f_perm = self._calculate_f_statistic_dispersions(all_dispersions, perm_labels)
+            f_permuted.append(f_perm)
+            
+        f_permuted = np.array(f_permuted)
+        p_value = np.sum(f_permuted >= observed_f) / n_permutations
+        
+        return {"f_statistic": observed_f, "p_value": p_value}
+    
+    def _calculate_f_statistic_dispersions(self, dispersions: np.ndarray, groups: np.ndarray) -> float:
+        """Calculate F-statistic for testing equality of dispersions."""
+        unique_groups = np.unique(groups)
+        
+        # Calculate group means and overall mean
+        group_means = {}
+        for group in unique_groups:
+            group_mask = groups == group
+            group_means[group] = np.mean(dispersions[group_mask])
+            
+        overall_mean = np.mean(dispersions)
+        
+        # Calculate between-group and within-group sum of squares
+        ss_between = 0
+        ss_within = 0
+        
+        for group in unique_groups:
+            group_mask = groups == group
+            n_group = np.sum(group_mask)
+            
+            # Between-group SS
+            ss_between += n_group * (group_means[group] - overall_mean) ** 2
+            
+            # Within-group SS
+            ss_within += np.sum((dispersions[group_mask] - group_means[group]) ** 2)
+            
+        # Calculate degrees of freedom
+        df_between = len(unique_groups) - 1
+        df_within = len(dispersions) - len(unique_groups)
+        
+        # Calculate F-statistic
+        if df_within > 0 and ss_within > 0:
+            ms_between = ss_between / df_between
+            ms_within = ss_within / df_within
+            f_statistic = ms_between / ms_within
+        else:
+            f_statistic = np.nan
+            
+        return f_statistic
+
     def permanova_test(
         self, metadata_variable: np.ndarray, n_permutations: int = 999
     ) -> Dict[str, float]:
@@ -652,6 +762,9 @@ class MetadataAnalyzer:
                         )
                         var_array = var_binned
 
+            # Run PERMDISP first to check homogeneity assumption
+            permdisp_result = permanova.permdisp_test(var_array, n_permutations)
+            
             # Run PERMANOVA
             result = permanova.permanova_test(var_array, n_permutations)
             result["variable"] = variable
@@ -660,6 +773,11 @@ class MetadataAnalyzer:
                 if self.metadata[variable].dtype == "object"
                 else "numerical"
             )
+            
+            # Add PERMDISP results
+            result["permdisp_p_value"] = permdisp_result["p_value"]
+            result["permdisp_f_statistic"] = permdisp_result["f_statistic"]
+            result["homogeneity_violated"] = permdisp_result["p_value"] < 0.05
             result["missing_count"] = self.metadata[variable].isna().sum()
 
             results.append(result)

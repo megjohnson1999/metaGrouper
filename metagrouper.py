@@ -75,6 +75,47 @@ def get_memory_usage():
     except ImportError:
         return None
 
+def get_available_memory():
+    """Get available system memory in GB."""
+    try:
+        import psutil
+        return psutil.virtual_memory().available / (1024**3)
+    except ImportError:
+        return None
+
+def check_memory_requirements(num_samples, scaled, prevalence_threshold):
+    """
+    Estimate memory requirements and warn if insufficient.
+    Very rough estimates based on observed behavior.
+    """
+    try:
+        import psutil
+        available_gb = psutil.virtual_memory().available / (1024**3)
+        
+        # Rough estimate: each sample contributes ~(4000000 / scaled) features
+        # After prevalence filtering: features * prevalence_threshold
+        estimated_features_per_sample = 4000000 / scaled
+        total_features = num_samples * estimated_features_per_sample
+        filtered_features = total_features * prevalence_threshold
+        
+        # Very rough memory estimate: 8 bytes per feature-sample pair
+        estimated_memory_gb = (filtered_features * num_samples * 8) / (1024**3)
+        
+        print(f"📊 Memory estimation:")
+        print(f"   • Available memory: {available_gb:.1f} GB")
+        print(f"   • Estimated features after filtering: {filtered_features:,.0f}")
+        print(f"   • Estimated memory needed: {estimated_memory_gb:.1f} GB")
+        
+        if estimated_memory_gb > available_gb * 0.8:  # Use 80% threshold
+            print("⚠️  WARNING: Estimated memory usage may exceed available memory!")
+            print("   Consider using --aggressive-mode for memory-constrained systems")
+            return False
+        
+        return True
+    except ImportError:
+        print("📊 Memory estimation: psutil not available, skipping memory check")
+        return True
+
 
 def log_memory_usage(stage_name, start_memory=None):
     """Log memory usage at different stages."""
@@ -206,9 +247,13 @@ Examples:
                        help="K-mer size (default: 21)")
     parser.add_argument("--max-reads", type=int, 
                        help="Maximum reads per sample (for testing)")
-    parser.add_argument("--distance-metric", default="braycurtis",
+    parser.add_argument("--distance-metric", default="jaccard",
                        choices=["braycurtis", "jaccard", "cosine", "euclidean"],
-                       help="Distance metric (default: braycurtis)")
+                       help="Distance metric (default: jaccard)")
+    parser.add_argument("--prevalence-threshold", type=float, default=0.1,
+                       help="K-mer prevalence threshold (fraction of samples, default: 0.1 = 10%)")
+    parser.add_argument("--aggressive-mode", action="store_true",
+                       help="Enable aggressive memory optimization for large datasets (sets scaled=10000, prevalence=0.05)")
     
     # Sourmash k-mer profiling arguments (high sensitivity defaults)
     parser.add_argument("--scaled", type=int, default=100,
@@ -325,15 +370,42 @@ def run_analysis(args):
     # Handle track_abundance logic (default to False for robustness to PCR bias)
     track_abundance = args.track_abundance and not getattr(args, 'no_track_abundance', False)
     
+    # Handle aggressive mode settings
+    if args.aggressive_mode:
+        print("🚀 AGGRESSIVE MODE: Optimizing for memory-constrained large datasets")
+        # Override settings for memory efficiency
+        args.scaled = 10000
+        args.prevalence_threshold = 0.05
+        print(f"   • Scaled: {args.scaled} (very aggressive sketching)")
+        print(f"   • Prevalence threshold: {args.prevalence_threshold:.1%} (5% = rare features filtered)")
+    
+    # Auto-adjust for large datasets (even without aggressive mode)
+    num_samples = len(fastq_files)
+    if num_samples > 500 and not args.aggressive_mode:
+        if args.scaled < 1000:
+            print(f"🔧 Auto-adjusting scaled from {args.scaled} to 1000 for large dataset ({num_samples} samples)")
+            args.scaled = 1000
+        if args.prevalence_threshold < 0.02:
+            print(f"🔧 Auto-adjusting prevalence threshold from {args.prevalence_threshold:.1%} to 2% for large dataset")
+            args.prevalence_threshold = 0.02
+    
+    # Check memory requirements
+    memory_ok = check_memory_requirements(num_samples, args.scaled, args.prevalence_threshold)
+    if not memory_ok:
+        print("💡 Suggestion: Try running with --aggressive-mode for better memory efficiency")
+        print()
+    
     # Always use sourmash for k-mer profiling
     print(f"⚡ Using sourmash for fast MinHash k-mer sketching")
     print(f"   K-mer size: {args.kmer_size}")
-    print(f"   Scaled: {args.scaled} (higher sensitivity than default 1000)")
+    print(f"   Scaled: {args.scaled}")
+    print(f"   Prevalence threshold: {args.prevalence_threshold:.1%}")
     print(f"   Track abundance: {track_abundance} (presence/absence mode more robust to PCR bias)")
     if hasattr(args, 'additional_k_sizes') and args.additional_k_sizes:
         print(f"   Additional k-mer sizes: {args.additional_k_sizes} (multi-scale analysis)")
     elif args.scaled <= 100:
         print(f"   Multi-scale analysis: k=21,31,51 (auto-enabled for high sensitivity)")
+    print()
     
     profiler = SourmashProfiler(
         k=args.kmer_size,
@@ -357,7 +429,8 @@ def run_analysis(args):
     profiles, sample_names = profiler.export_to_metagrouper_format(
         signatures, 
         similarity_matrix,
-        use_k_size=args.kmer_size
+        use_k_size=args.kmer_size,
+        prevalence_threshold=args.prevalence_threshold
     )
     failed_samples = []
     

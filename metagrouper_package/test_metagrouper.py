@@ -319,7 +319,7 @@ class TestModularConfig(unittest.TestCase):
         self.assertEqual(config.profiling.k_size, 21)
         self.assertEqual(config.profiling.min_kmer_freq, 1)
         self.assertTrue(config.profiling.memory_efficient)
-        self.assertEqual(config.analysis.distance_metric, "braycurtis")
+        self.assertEqual(config.analysis.distance_metric, "jaccard")
     
     def test_config_validation(self):
         """Test configuration validation."""

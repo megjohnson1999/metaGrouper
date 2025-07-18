@@ -388,7 +388,8 @@ class SourmashProfiler:
     
     def export_to_metagrouper_format(self, signatures: Dict[str, List[SourmashSignature]],
                                     similarity_matrix: np.ndarray, 
-                                    use_k_size: Optional[int] = None) -> Tuple[Dict, List[str]]:
+                                    use_k_size: Optional[int] = None,
+                                    prevalence_threshold: float = 0.1) -> Tuple[Dict, List[str]]:
         """
         Convert sourmash results to MetaGrouper's expected format.
         
@@ -433,6 +434,52 @@ class SourmashProfiler:
                 # Just use presence/absence
                 hashes = mh.hashes
                 profiles[sample_name] = {str(h): 1 for h in hashes}
+        
+        # Apply prevalence filtering to reduce memory usage
+        if prevalence_threshold > 0 and len(sample_names) > 10:
+            from collections import defaultdict
+            
+            # Count how many samples each hash appears in
+            hash_counts = defaultdict(int)
+            for profile in profiles.values():
+                for hash_val in profile.keys():
+                    hash_counts[hash_val] += 1
+            
+            # Early warning for very large feature spaces
+            total_unique_hashes = len(hash_counts)
+            if total_unique_hashes > 50000000:  # 50M threshold
+                logging.warning(f"Very large feature space detected: {total_unique_hashes:,} unique hashes")
+                logging.warning("Consider using --aggressive-mode or higher --scaled value for better memory efficiency")
+            
+            # Filter hashes by prevalence
+            n_samples = len(sample_names)
+            
+            # Auto-adjust prevalence threshold for very large datasets
+            adjusted_threshold = prevalence_threshold
+            if n_samples > 500 and prevalence_threshold < 0.2:
+                adjusted_threshold = 0.2  # 20% for large datasets
+                logging.info(f"Auto-adjusted prevalence threshold to {adjusted_threshold:.1%} for large dataset ({n_samples} samples)")
+            elif n_samples > 1000 and prevalence_threshold < 0.3:
+                adjusted_threshold = 0.3  # 30% for very large datasets
+                logging.info(f"Auto-adjusted prevalence threshold to {adjusted_threshold:.1%} for very large dataset ({n_samples} samples)")
+            
+            min_samples = max(2, int(adjusted_threshold * n_samples))
+            common_hashes = {h for h, count in hash_counts.items() if count >= min_samples}
+            
+            # Apply filtering to all profiles
+            filtered_profiles = {}
+            for sample_name, profile in profiles.items():
+                filtered_profiles[sample_name] = {h: count for h, count in profile.items() if h in common_hashes}
+            
+            # Log filtering results
+            original_count = len(hash_counts)
+            filtered_count = len(common_hashes)
+            reduction_percent = 100 * (1 - filtered_count / original_count) if original_count > 0 else 0
+            
+            logging.info(f"Sourmash hash filtering: {original_count:,} total → {filtered_count:,} retained "
+                        f"({reduction_percent:.1f}% reduction, min_samples={min_samples})")
+            
+            profiles = filtered_profiles
         
         return profiles, sample_names
     

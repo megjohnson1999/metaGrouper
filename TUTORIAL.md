@@ -232,11 +232,11 @@ python metagrouper.py fastq_files/ --kmer-size 27 --output k27_results/
 #### Distance Metrics
 
 ```bash
-# Bray-Curtis (default, good for abundance data)
-python metagrouper.py fastq_files/ --distance-metric braycurtis
-
-# Jaccard (presence/absence, good for diverse samples)
+# Jaccard (default, presence/absence, good for diverse samples)
 python metagrouper.py fastq_files/ --distance-metric jaccard
+
+# Bray-Curtis (good for abundance data)
+python metagrouper.py fastq_files/ --distance-metric braycurtis
 
 # Cosine (angle-based, good for normalized data)
 python metagrouper.py fastq_files/ --distance-metric cosine

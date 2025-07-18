@@ -86,8 +86,19 @@ For more information, see the tutorial: https://github.com/user/metagrouper/blob
     kmer_group.add_argument(
         "--distance-metric",
         choices=["braycurtis", "jaccard", "cosine", "euclidean"],
-        default="braycurtis",
-        help="Distance metric for sample comparison (default: braycurtis)",
+        default="jaccard",
+        help="Distance metric for sample comparison (default: jaccard)",
+    )
+    kmer_group.add_argument(
+        "--prevalence-threshold",
+        type=float,
+        default=0.1,
+        help="K-mer prevalence threshold (fraction of samples, default: 0.1 = 10%)",
+    )
+    kmer_group.add_argument(
+        "--aggressive-mode",
+        action="store_true",
+        help="Enable aggressive memory optimization for large datasets (sets scaled=10000, prevalence=0.05)",
     )
     kmer_group.add_argument(
         "--scaled",

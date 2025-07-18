@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-dataset compatibility for different naming conventions
 
 ### Changed
+- **Default distance metric changed from Bray-Curtis to Jaccard** for better compatibility with sourmash presence/absence mode
 - Metadata auto-filtering now preserves binary variables (sex, IBD status)
 - Improved biological variable retention across diverse dataset types
 - Enhanced `.gitignore` patterns for bioinformatics outputs

@@ -24,7 +24,7 @@ class MetaGrouperConfig:
                 "default_k": 21,
                 "min_k": 11,
                 "max_k": 31,
-                "default_distance_metric": "braycurtis",
+                "default_distance_metric": "jaccard",
                 "supported_metrics": ["braycurtis", "jaccard", "cosine", "euclidean"],
             },
             "metadata_analysis": {

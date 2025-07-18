@@ -83,6 +83,14 @@ python preprocess.py raw_data/ -o clean_data/
 
 ## Recent Improvements (2025)
 
+### Memory & Scalability Improvements (New!)
+MetaGrouper now handles large datasets (1000+ samples) through:
+- **K-mer prevalence filtering**: 0.5% prevalence threshold (default) reduces memory usage by filtering rare k-mers
+- **Sparse matrix support**: TruncatedSVD replaces PCA for memory-efficient dimensionality reduction
+- **PERMDISP analysis**: Tests homogeneity of dispersions before PERMANOVA to validate assumptions
+- **Configurable filtering**: `--prevalence-threshold` option for adjusting k-mer filtering stringency
+- **Automatic sparse detection**: Automatically chooses sparse vs dense methods based on dataset size
+
 ### High Sensitivity Sourmash Parameters (New!)
 MetaGrouper now uses optimized sourmash parameters for much better sensitivity:
 - **scaled**: 1000 → 100 (10x more k-mers retained for higher resolution)
@@ -129,6 +137,9 @@ MetaGrouper now uses intelligent content-based filtering instead of hard-coded n
 - **Presence/absence mode** robust to PCR bias and technical artifacts
 - **Smart metadata filtering** includes patient IDs while excluding technical noise
 - **Cross-dataset compatibility** works with different naming conventions
+- **Memory efficiency** handles 1000+ samples through prevalence filtering and sparse matrices
+- **Statistical rigor** PERMDISP validates PERMANOVA assumptions
+- **Scalable analysis** automatic sparse/dense method selection based on dataset size
 - More biologically meaningful sample groupings
 - Better detection of similar samples for co-assembly
 - Reduced false negative groupings (addresses "97-99% dissimilar" issues)

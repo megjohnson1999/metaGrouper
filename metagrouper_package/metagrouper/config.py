@@ -25,6 +25,7 @@ class ProfilingConfig:
     scaled: int = 100  # Higher sensitivity than default 1000
     track_abundance: bool = False  # Disabled by default (more robust to PCR bias)
     additional_k_sizes: Optional[List[int]] = None  # Additional k-mer sizes for multi-scale analysis
+    prevalence_threshold: float = 0.1  # K-mer must appear in at least 10% of samples (memory efficient)
     
     def __post_init__(self):
         if self.k_size < 1 or self.k_size > 32:
@@ -35,6 +36,8 @@ class ProfilingConfig:
             raise ValueError(f"min_kmer_freq must be positive, got {self.min_kmer_freq}")
         if self.scaled < 1:
             raise ValueError(f"scaled must be positive, got {self.scaled}")
+        if self.prevalence_threshold < 0 or self.prevalence_threshold > 1:
+            raise ValueError(f"prevalence_threshold must be between 0 and 1, got {self.prevalence_threshold}")
         
         # Set default additional k-sizes for multi-scale analysis when using high sensitivity
         if self.additional_k_sizes is None and self.scaled <= 100:
@@ -58,7 +61,7 @@ class ProcessingConfig:
 @dataclass
 class AnalysisConfig:
     """Configuration for similarity analysis."""
-    distance_metric: str = "braycurtis"
+    distance_metric: str = "jaccard"
     memory_efficient: bool = True
     sparse_threshold: int = 50  # Use sparse computation for >50 samples
     
