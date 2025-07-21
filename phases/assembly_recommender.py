@@ -37,6 +37,19 @@ class AssemblyGroup:
 
 
 @dataclass
+class ConfidenceBreakdown:
+    """Detailed breakdown of confidence score components."""
+    total_confidence: float
+    isolation_score: Optional[float] = None  # For individual assembly
+    clustering_score: Optional[float] = None  # For group assembly  
+    stability_score: Optional[float] = None  # Group stability
+    metadata_alignment: Optional[float] = None  # Metadata consistency
+    statistical_significance: Optional[float] = None  # P-values, effect sizes
+    sample_size_adequacy: Optional[float] = None  # Sufficient samples for reliable grouping
+    explanation: str = ""
+
+
+@dataclass
 class AssemblyRecommendation:
     """Complete assembly strategy recommendation."""
 
@@ -48,19 +61,6 @@ class AssemblyRecommendation:
     decision_rationale: str
     assembly_commands: Dict[str, List[str]]
     performance_predictions: Dict[str, Any]
-
-
-@dataclass
-class ConfidenceBreakdown:
-    """Detailed breakdown of confidence score components."""
-    total_confidence: float
-    isolation_score: Optional[float] = None  # For individual assembly
-    clustering_score: Optional[float] = None  # For group assembly  
-    stability_score: Optional[float] = None  # Group stability
-    metadata_alignment: Optional[float] = None  # Metadata consistency
-    statistical_significance: Optional[float] = None  # P-values, effect sizes
-    sample_size_adequacy: Optional[float] = None  # Sufficient samples for reliable grouping
-    explanation: str = ""
 
 
 class ConfidenceCalculator:
@@ -896,7 +896,7 @@ class AssemblyRecommender:
                 "No clear grouping patterns found. Individual assembly recommended."
             )
             # Calculate individual assembly confidence based on data
-            confidence_breakdown = self.confidence_calc.calculate_overall_strategy_confidence("individual", [])
+            confidence_breakdown = self.strategy_engine.confidence_calc.calculate_overall_strategy_confidence("individual", [])
             overall_confidence = confidence_breakdown.total_confidence
         elif grouped_samples == total_samples and len(final_groups) == 1:
             strategy = "global"
@@ -904,7 +904,7 @@ class AssemblyRecommender:
                 "All samples show strong similarity. Global co-assembly recommended."
             )
             # Calculate global strategy confidence using new method
-            confidence_breakdown = self.confidence_calc.calculate_overall_strategy_confidence("global", [])
+            confidence_breakdown = self.strategy_engine.confidence_calc.calculate_overall_strategy_confidence("global", [])
             overall_confidence = confidence_breakdown.total_confidence
         else:
             strategy = "grouped"
@@ -915,7 +915,7 @@ class AssemblyRecommender:
                 group_sample_indices = [self.sample_names.index(name) for name in group.sample_names if name in self.sample_names]
                 if group_sample_indices:
                     group_indices_list.append(group_sample_indices)
-            confidence_breakdown = self.confidence_calc.calculate_overall_strategy_confidence("grouped", group_indices_list)
+            confidence_breakdown = self.strategy_engine.confidence_calc.calculate_overall_strategy_confidence("grouped", group_indices_list)
             overall_confidence = confidence_breakdown.total_confidence
 
         # Determine primary criterion
