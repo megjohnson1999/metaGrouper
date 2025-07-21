@@ -457,7 +457,8 @@ class InteractiveReportGenerator:
         # Initialize interactive visualizer
         visualizer = InteractiveVisualizer(
             self.report_data['sample_names'],
-            self.report_data.get('metadata')
+            self.report_data.get('metadata'),
+            self.report_data.get('analyzed_variables')
         )
         
         # Create PCA if we have k-mer data
