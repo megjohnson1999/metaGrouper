@@ -635,8 +635,8 @@ def run_analysis(args):
         print("-" * 60)
         
         try:
-            # Initialize assembly recommender with distance matrix
-            recommender = AssemblyRecommender(distance_matrix, sample_names)
+            # Initialize assembly recommender with distance matrix and metadata
+            recommender = AssemblyRecommender(distance_matrix, sample_names, metadata_for_viz)
             
             # Configure thresholds
             recommender.strategy_engine.similarity_threshold_medium = args.similarity_threshold
@@ -710,6 +710,8 @@ def run_analysis(args):
             print(f"✅ Phase 3 analysis completed successfully")
             print(f"   Strategy: {assembly_recommendation.strategy.title()}")
             print(f"   Confidence: {assembly_recommendation.overall_confidence:.1%}")
+            if assembly_recommendation.confidence_breakdown and assembly_recommendation.confidence_breakdown.explanation:
+                print(f"   Rationale: {assembly_recommendation.confidence_breakdown.explanation}")
             print(f"   Groups: {len(assembly_recommendation.groups)}")
             
         except Exception as e:
@@ -745,6 +747,8 @@ def run_analysis(args):
         print(f"\n🔧 Phase 3 Results:")
         print(f"   • Assembly strategy: {assembly_recommendation.strategy.title()}")
         print(f"   • Confidence: {assembly_recommendation.overall_confidence:.1%}")
+        if assembly_recommendation.confidence_breakdown and assembly_recommendation.confidence_breakdown.explanation:
+            print(f"   • Confidence rationale: {assembly_recommendation.confidence_breakdown.explanation}")
         print(f"   • Assembly groups: {len(assembly_recommendation.groups)}")
         print(f"   • Assembly tools: {', '.join(assembly_recommendation.assembly_commands.keys())}")
     

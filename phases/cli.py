@@ -171,7 +171,7 @@ For more information, see the tutorial: https://github.com/user/metagrouper/blob
         "--similarity-threshold",
         type=float,
         default=0.45,
-        help="Distance threshold for grouping samples (0.0-1.0, default: 0.45)",
+        help="K-mer distance threshold for co-assembly grouping (0.0-1.0, default: 0.45)",
     )
     assembly_group.add_argument(
         "--min-group-size",

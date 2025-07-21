@@ -98,11 +98,14 @@ MetaGrouper now uses optimized sourmash parameters for much better sensitivity:
 - **multi_k_analysis**: Added support for multiple k-mer sizes (21, 31, 51)
 - **resolves**: "97-99% dissimilar" issues from previous analyses
 
-### Threshold Updates
-MetaGrouper has been updated with research-based similarity thresholds:
-- **similarity_threshold_high**: 0.15 → 0.25 (more permissive)
-- **similarity_threshold_medium**: 0.30 → 0.45 (research-validated)
-- **default_similarity_threshold**: 0.30 → 0.45 (better biological grouping)
+### Similarity Thresholds
+MetaGrouper uses k-mer distance thresholds to decide which samples should be co-assembled:
+- **default_similarity_threshold**: 0.45 (moderate grouping - balances assembly quality with community preservation)
+- **Lower values** (0.2-0.3): More stringent grouping, preserves strain-level differences
+- **Higher values** (0.5-0.7): More permissive grouping, better coverage for shared organisms
+- **Configurable via**: `--similarity-threshold X.XX` based on your study goals
+
+Note: Optimal thresholds depend on study design, community complexity, and analysis goals. The default 0.45 represents a reasonable balance for most metagenomic datasets.
 - **max_group_size**: 10 → 20 (supports larger co-assemblies)
 
 ### Statistical Validation

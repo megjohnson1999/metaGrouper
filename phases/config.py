@@ -36,11 +36,12 @@ class MetaGrouperConfig:
             },
             "assembly_recommendations": {
                 "similarity_thresholds": {
-                    "stringent": 0.25,
-                    "medium": 0.40,
-                    "permissive": 0.60,
+                    # Reasonable thresholds for different grouping strategies
+                    "stringent": 0.30,          # Conservative grouping, preserves diversity
+                    "moderate": 0.45,           # Balanced approach (default)
+                    "permissive": 0.60,         # Aggressive grouping, maximizes coverage
                 },
-                "default_similarity_threshold": 0.45,
+                "default_similarity_threshold": 0.45,  # Moderate grouping strategy
                 "min_group_size": 2,
                 "max_group_size": 20,
                 "supported_tools": ["megahit", "spades", "flye"],

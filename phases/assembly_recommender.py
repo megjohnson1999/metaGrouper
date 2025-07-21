@@ -16,6 +16,7 @@ import json
 from dataclasses import dataclass, asdict
 from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 from scipy.spatial.distance import squareform
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -42,26 +43,288 @@ class AssemblyRecommendation:
     strategy: str  # 'individual', 'grouped', 'global'
     groups: List[AssemblyGroup]
     overall_confidence: float
+    confidence_breakdown: Optional[ConfidenceBreakdown]
     primary_criterion: Optional[str]
     decision_rationale: str
     assembly_commands: Dict[str, List[str]]
     performance_predictions: Dict[str, Any]
 
 
+@dataclass
+class ConfidenceBreakdown:
+    """Detailed breakdown of confidence score components."""
+    total_confidence: float
+    isolation_score: Optional[float] = None  # For individual assembly
+    clustering_score: Optional[float] = None  # For group assembly  
+    stability_score: Optional[float] = None  # Group stability
+    metadata_alignment: Optional[float] = None  # Metadata consistency
+    statistical_significance: Optional[float] = None  # P-values, effect sizes
+    sample_size_adequacy: Optional[float] = None  # Sufficient samples for reliable grouping
+    explanation: str = ""
+
+
+class ConfidenceCalculator:
+    """Data-driven confidence calculation for assembly recommendations."""
+    
+    def __init__(self, distance_matrix: np.ndarray, sample_names: List[str], metadata: Optional[pd.DataFrame] = None):
+        self.distance_matrix = distance_matrix
+        self.sample_names = sample_names
+        self.metadata = metadata
+        self.n_samples = len(sample_names)
+        
+    def calculate_individual_confidence(self, sample_idx: int) -> ConfidenceBreakdown:
+        """Calculate confidence for individual assembly of a specific sample."""
+        # Isolation score: How different this sample is from all others
+        sample_distances = self.distance_matrix[sample_idx, :]
+        other_distances = np.delete(sample_distances, sample_idx)
+        
+        if len(other_distances) == 0:
+            isolation_score = 1.0  # Only sample, definitely individual
+        else:
+            # Higher mean distance = more isolated = higher confidence for individual assembly
+            mean_distance_to_others = np.mean(other_distances)
+            min_distance_to_others = np.min(other_distances)
+            
+            # Calculate isolation score based on dataset distribution
+            # Use dataset statistics rather than arbitrary thresholds
+            all_distances = self.distance_matrix[np.triu_indices(self.n_samples, k=1)]
+            median_distance = np.median(all_distances)
+            percentile_75 = np.percentile(all_distances, 75)
+            
+            # Score based on how much more isolated this sample is than typical
+            # Higher than median = some isolation, higher than 75th percentile = strong isolation
+            if median_distance > 0:
+                isolation_score = min(mean_distance_to_others / percentile_75, 1.0)
+            else:
+                isolation_score = 0.5  # All samples identical
+            
+            # Additional boost for samples with no close neighbors
+            if min_distance_to_others > median_distance:
+                isolation_boost = min_distance_to_others / median_distance
+                isolation_score = min(isolation_score * (1.0 + isolation_boost * 0.2), 1.0)
+        
+        # Metadata uniqueness (if available)
+        metadata_alignment = None
+        if self.metadata is not None and sample_idx < len(self.metadata):
+            # Count how many metadata features are unique or rare for this sample
+            sample_row = self.metadata.iloc[sample_idx]
+            uniqueness_score = 0
+            total_features = 0
+            
+            for col in self.metadata.columns:
+                if col != 'sample_id' and not pd.isna(sample_row[col]):
+                    value_counts = self.metadata[col].value_counts()
+                    if len(value_counts) > 1:  # Skip constant columns
+                        frequency = value_counts.get(sample_row[col], 0) / len(self.metadata)
+                        uniqueness_score += (1 - frequency)  # Rare values get higher scores
+                        total_features += 1
+            
+            metadata_alignment = uniqueness_score / max(total_features, 1)
+        
+        # Combine scores
+        if metadata_alignment is not None:
+            total_confidence = (isolation_score * 0.7 + metadata_alignment * 0.3)
+        else:
+            total_confidence = isolation_score
+            
+        explanation = f"Sample is {'well-isolated' if isolation_score > 0.6 else 'moderately isolated'} from other samples (isolation={isolation_score:.2f})"
+        if metadata_alignment is not None:
+            explanation += f", with {'unique' if metadata_alignment > 0.5 else 'common'} metadata profile (uniqueness={metadata_alignment:.2f})"
+            
+        return ConfidenceBreakdown(
+            total_confidence=total_confidence,
+            isolation_score=isolation_score,
+            metadata_alignment=metadata_alignment,
+            explanation=explanation
+        )
+    
+    def calculate_group_confidence(self, group_indices: List[int], group_label: str = "") -> ConfidenceBreakdown:
+        """Calculate confidence for co-assembly of a group of samples."""
+        if len(group_indices) < 2:
+            return ConfidenceBreakdown(total_confidence=0.0, explanation="Group too small for co-assembly")
+            
+        # Extract group distance matrix
+        group_distances = self.distance_matrix[np.ix_(group_indices, group_indices)]
+        
+        # Clustering tightness - use silhouette-like score
+        if len(group_indices) >= 2:
+            # Compare intra-group distances to distances to rest of samples
+            intra_group_distances = []
+            inter_group_distances = []
+            
+            for i, idx1 in enumerate(group_indices):
+                for j, idx2 in enumerate(group_indices):
+                    if i != j:
+                        intra_group_distances.append(self.distance_matrix[idx1, idx2])
+                        
+                # Distances to samples NOT in this group
+                for other_idx in range(self.n_samples):
+                    if other_idx not in group_indices:
+                        inter_group_distances.append(self.distance_matrix[idx1, other_idx])
+            
+            if intra_group_distances and inter_group_distances:
+                mean_intra = np.mean(intra_group_distances)
+                mean_inter = np.mean(inter_group_distances)
+                
+                # Silhouette-like score: want low intra-group, high inter-group distances
+                if mean_inter > 0:
+                    clustering_score = (mean_inter - mean_intra) / max(mean_inter, mean_intra)
+                    clustering_score = max(0, clustering_score)  # Clamp to [0,1]
+                else:
+                    clustering_score = 0.0
+            else:
+                clustering_score = 0.0
+        else:
+            clustering_score = 0.0
+        
+        # Sample size adequacy - adaptive scoring based on dataset size and assembly theory
+        # Optimal group size scales with total dataset size and computational constraints
+        total_samples = self.n_samples
+        
+        # Calculate adaptive optimal range based on dataset size
+        if total_samples <= 20:
+            # Small datasets: be more permissive with group sizes
+            optimal_min, optimal_max = 2, max(6, total_samples // 3)
+        elif total_samples <= 100:
+            # Medium datasets: classic co-assembly range
+            optimal_min, optimal_max = 3, min(15, total_samples // 5)
+        else:
+            # Large datasets: larger groups become more beneficial
+            optimal_min, optimal_max = 5, min(25, total_samples // 8)
+        
+        group_size = len(group_indices)
+        
+        # Adaptive scoring function - bell curve centered on optimal range
+        if group_size < optimal_min:
+            # Too small - limited diversity
+            size_score = 0.6 + 0.3 * (group_size / optimal_min)
+        elif optimal_min <= group_size <= optimal_max:
+            # Optimal range - highest scores
+            size_score = 1.0
+        else:
+            # Too large - diminishing returns due to complexity
+            excess = group_size - optimal_max
+            max_excess = max(10, optimal_max)  # Allow some flexibility
+            size_score = max(0.5, 1.0 - (excess / max_excess) * 0.4)
+        
+        # Metadata consistency (if available)
+        metadata_alignment = None
+        if self.metadata is not None and len(group_indices) >= 2:
+            group_metadata = self.metadata.iloc[group_indices]
+            consistency_scores = []
+            
+            for col in group_metadata.columns:
+                if col != 'sample_id' and not group_metadata[col].isna().all():
+                    # For categorical: higher consistency = more samples with same value
+                    if group_metadata[col].dtype == 'object':
+                        mode_count = group_metadata[col].value_counts().iloc[0] if len(group_metadata[col].value_counts()) > 0 else 0
+                        consistency = mode_count / len(group_indices)
+                        consistency_scores.append(consistency)
+                    else:
+                        # For numerical: lower coefficient of variation = higher consistency  
+                        if group_metadata[col].std() > 0:
+                            cv = group_metadata[col].std() / group_metadata[col].mean() if group_metadata[col].mean() != 0 else 1
+                            consistency = max(0, 1 - min(cv, 1))  # Convert CV to consistency score
+                            consistency_scores.append(consistency)
+            
+            metadata_alignment = np.mean(consistency_scores) if consistency_scores else 0.5
+        
+        # Combine scores
+        scores = [clustering_score, size_score]
+        weights = [0.6, 0.4]
+        
+        if metadata_alignment is not None:
+            scores.append(metadata_alignment)
+            weights = [0.5, 0.3, 0.2]  # Reweight
+        
+        total_confidence = np.average(scores, weights=weights)
+        
+        # Generate explanation
+        explanation = f"Group of {len(group_indices)} samples with "
+        explanation += f"{'tight' if clustering_score > 0.6 else 'loose' if clustering_score > 0.3 else 'weak'} clustering (score={clustering_score:.2f}), "
+        explanation += f"{'optimal' if size_score >= 0.9 else 'adequate' if size_score >= 0.7 else 'suboptimal'} size (score={size_score:.2f})"
+        if metadata_alignment is not None:
+            explanation += f", {'consistent' if metadata_alignment > 0.6 else 'mixed'} metadata (score={metadata_alignment:.2f})"
+        
+        return ConfidenceBreakdown(
+            total_confidence=total_confidence,
+            clustering_score=clustering_score,
+            sample_size_adequacy=size_score,
+            metadata_alignment=metadata_alignment,
+            explanation=explanation
+        )
+    
+    def calculate_overall_strategy_confidence(self, strategy: str, groups: List[List[int]]) -> ConfidenceBreakdown:
+        """Calculate overall confidence for the chosen strategy."""
+        if strategy == "individual":
+            # For individual strategy, confidence is based on how well samples are separated
+            if self.n_samples <= 1:
+                return ConfidenceBreakdown(total_confidence=1.0, explanation="Single sample - individual assembly certain")
+            
+            # Calculate average isolation of all samples
+            individual_scores = []
+            for i in range(self.n_samples):
+                individual_conf = self.calculate_individual_confidence(i)
+                individual_scores.append(individual_conf.total_confidence)
+            
+            overall_score = np.mean(individual_scores)
+            explanation = f"Individual assembly recommended: average sample isolation = {overall_score:.2f}"
+            
+            return ConfidenceBreakdown(
+                total_confidence=overall_score,
+                isolation_score=overall_score,
+                explanation=explanation
+            )
+            
+        elif strategy == "grouped":
+            # For grouped strategy, confidence is average of group confidences
+            group_confidences = []
+            for group_indices in groups:
+                group_conf = self.calculate_group_confidence(group_indices)
+                group_confidences.append(group_conf.total_confidence)
+            
+            if group_confidences:
+                overall_score = np.mean(group_confidences)
+                explanation = f"Grouped assembly: {len(groups)} groups with average confidence {overall_score:.2f}"
+            else:
+                overall_score = 0.0
+                explanation = "No valid groups found for grouped assembly"
+                
+            return ConfidenceBreakdown(
+                total_confidence=overall_score,
+                clustering_score=overall_score,
+                explanation=explanation
+            )
+            
+        elif strategy == "global":
+            # For global strategy, treat all samples as one big group
+            all_indices = list(range(self.n_samples))
+            global_conf = self.calculate_group_confidence(all_indices, "global")
+            global_conf.explanation = f"Global co-assembly: all {self.n_samples} samples together - " + global_conf.explanation
+            return global_conf
+            
+        else:
+            return ConfidenceBreakdown(total_confidence=0.0, explanation=f"Unknown strategy: {strategy}")
+
+
 class AssemblyStrategyEngine:
     """Core engine for determining optimal assembly strategies."""
 
-    def __init__(self, distance_matrix: np.ndarray, sample_names: List[str]):
+    def __init__(self, distance_matrix: np.ndarray, sample_names: List[str], metadata: Optional[pd.DataFrame] = None):
         self.distance_matrix = distance_matrix
         self.sample_names = sample_names
+        self.metadata = metadata
         self.n_samples = len(sample_names)
 
-        # Thresholds for assembly decisions (can be tuned)
-        self.similarity_threshold_high = 0.25  # Very similar samples
-        self.similarity_threshold_medium = 0.45  # Moderately similar samples
+        # Configurable thresholds for assembly decisions
+        self.similarity_threshold_high = 0.30   # Stringent grouping
+        self.similarity_threshold_medium = 0.45  # Moderate grouping (default)
         self.significance_threshold = 0.05  # P-value threshold for metadata
         self.min_group_size = 2
         self.max_group_size = 20
+        
+        # Initialize confidence calculator
+        self.confidence_calc = ConfidenceCalculator(distance_matrix, sample_names, metadata)
 
     def _calculate_group_statistics(
         self, group_indices: List[int]
@@ -82,28 +345,9 @@ class AssemblyStrategyEngine:
         return avg_distance, max_distance
 
     def _assess_group_quality(self, group_indices: List[int]) -> float:
-        """Assess the quality of a proposed assembly group."""
-        if len(group_indices) < 2:
-            return 0.0
-
-        avg_dist, max_dist = self._calculate_group_statistics(group_indices)
-
-        # Calculate confidence based on distance metrics
-        # Lower distances = higher confidence
-        distance_score = max(0, 1 - (avg_dist / self.similarity_threshold_medium))
-
-        # Size penalty/bonus
-        size_score = 1.0
-        if len(group_indices) < 3:
-            size_score = 0.8  # Small groups less reliable
-        elif len(group_indices) > 8:
-            size_score = 0.7  # Very large groups may be problematic
-
-        # Homogeneity score (max distance within group)
-        homogeneity_score = max(0, 1 - (max_dist / self.similarity_threshold_medium))
-
-        confidence = distance_score * 0.4 + size_score * 0.2 + homogeneity_score * 0.4
-        return min(1.0, max(0.0, confidence))
+        """Assess the quality of a proposed assembly group using data-driven confidence calculation."""
+        confidence_breakdown = self.confidence_calc.calculate_group_confidence(group_indices)
+        return confidence_breakdown.total_confidence
 
     def recommend_by_similarity(self) -> List[AssemblyGroup]:
         """Recommend assembly groups based purely on k-mer similarity."""
@@ -361,19 +605,16 @@ class AssemblyStrategyEngine:
 
                 avg_dist, max_dist = self._calculate_group_statistics(sample_indices)
 
-                # Calculate confidence based on statistical significance and distance
-                stat_confidence = min(1.0, row["r_squared"] * 2)  # R-squared based
-                p_value_bonus = (
-                    1.2
-                    if row["p_value"] < 0.01
-                    else 1.0 if row["p_value"] < 0.05 else 0.8
-                )
-                distance_penalty = max(
-                    0.5, 1 - (avg_dist / self.similarity_threshold_medium)
-                )
-
-                confidence = stat_confidence * p_value_bonus * distance_penalty
-                confidence = min(1.0, max(0.0, confidence))
+                # Calculate confidence using new data-driven method
+                group_conf_breakdown = self.confidence_calc.calculate_group_confidence(sample_indices)
+                
+                # Incorporate statistical significance from metadata analysis
+                stat_confidence = min(1.0, row["r_squared"] * 2)
+                p_significance = 1.0 if row["p_value"] < 0.01 else 0.9 if row["p_value"] < 0.05 else 0.7
+                
+                # Combine clustering-based confidence with statistical significance
+                confidence = (group_conf_breakdown.total_confidence * 0.7 + 
+                            stat_confidence * p_significance * 0.3)
 
                 # Determine benefits and challenges
                 benefits = [
@@ -418,16 +659,9 @@ class AssemblyStrategyEngine:
         # Score and combine approaches
         all_groups = similarity_groups + metadata_groups
 
-        # Re-score considering both approaches
-        for group in all_groups:
-            if group.grouping_criterion == "k-mer_similarity":
-                # Bonus for purely similarity-based groups with very low distances
-                if group.avg_distance < self.similarity_threshold_high:
-                    group.confidence_score *= 1.2
-            else:
-                # Metadata-based groups get bonus if they also have low distances
-                if group.avg_distance < self.similarity_threshold_medium:
-                    group.confidence_score *= 1.1
+        # Groups now have properly calculated confidence scores based on data
+        # No need for arbitrary bonuses - the ConfidenceCalculator already considers
+        # distance metrics, metadata alignment, and clustering quality
 
         # Remove overlapping groups, keeping highest confidence
         final_groups = []
@@ -599,10 +833,11 @@ class PerformancePredictor:
 class AssemblyRecommender:
     """Main class for generating comprehensive assembly recommendations."""
 
-    def __init__(self, distance_matrix: np.ndarray, sample_names: List[str]):
+    def __init__(self, distance_matrix: np.ndarray, sample_names: List[str], metadata: Optional[pd.DataFrame] = None):
         self.distance_matrix = distance_matrix
         self.sample_names = sample_names
-        self.strategy_engine = AssemblyStrategyEngine(distance_matrix, sample_names)
+        self.metadata = metadata
+        self.strategy_engine = AssemblyStrategyEngine(distance_matrix, sample_names, metadata)
         self.command_generator = AssemblyCommandGenerator()
         self.performance_predictor = PerformancePredictor(distance_matrix, sample_names)
 
@@ -652,24 +887,36 @@ class AssemblyRecommender:
         total_samples = len(self.sample_names)
         grouped_samples = sum(len(group.sample_names) for group in final_groups)
 
+        # Calculate strategy confidence and store breakdown for reporting
+        confidence_breakdown = None
+        
         if not final_groups or grouped_samples < 2:
             strategy = "individual"
             rationale = (
                 "No clear grouping patterns found. Individual assembly recommended."
             )
-            overall_confidence = 0.7
+            # Calculate individual assembly confidence based on data
+            confidence_breakdown = self.confidence_calc.calculate_overall_strategy_confidence("individual", [])
+            overall_confidence = confidence_breakdown.total_confidence
         elif grouped_samples == total_samples and len(final_groups) == 1:
             strategy = "global"
             rationale = (
                 "All samples show strong similarity. Global co-assembly recommended."
             )
-            overall_confidence = final_groups[0].confidence_score
+            # Calculate global strategy confidence using new method
+            confidence_breakdown = self.confidence_calc.calculate_overall_strategy_confidence("global", [])
+            overall_confidence = confidence_breakdown.total_confidence
         else:
             strategy = "grouped"
             rationale = f"Mixed strategy: {len(final_groups)} co-assembly groups covering {grouped_samples}/{total_samples} samples."
-            overall_confidence = np.mean(
-                [group.confidence_score for group in final_groups]
-            )
+            # Calculate grouped strategy confidence using new method
+            group_indices_list = []
+            for group in final_groups:
+                group_sample_indices = [self.sample_names.index(name) for name in group.sample_names if name in self.sample_names]
+                if group_sample_indices:
+                    group_indices_list.append(group_sample_indices)
+            confidence_breakdown = self.confidence_calc.calculate_overall_strategy_confidence("grouped", group_indices_list)
+            overall_confidence = confidence_breakdown.total_confidence
 
         # Determine primary criterion
         primary_criterion = None
@@ -694,6 +941,7 @@ class AssemblyRecommender:
             strategy=strategy,
             groups=final_groups,
             overall_confidence=overall_confidence,
+            confidence_breakdown=confidence_breakdown,
             primary_criterion=primary_criterion,
             decision_rationale=rationale,
             assembly_commands=assembly_commands,
