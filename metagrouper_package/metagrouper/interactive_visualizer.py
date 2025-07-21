@@ -29,16 +29,18 @@ except ImportError:
 class InteractiveVisualizer:
     """Generate interactive visualizations for sample relationships."""
 
-    def __init__(self, sample_names: List[str], metadata: Optional[pd.DataFrame] = None):
+    def __init__(self, sample_names: List[str], metadata: Optional[pd.DataFrame] = None, analyzed_variables: Optional[List[str]] = None):
         """
         Initialize the InteractiveVisualizer.
         
         Args:
             sample_names: List of sample names
             metadata: Optional metadata DataFrame with sample information
+            analyzed_variables: Optional list of metadata variables to prioritize for dropdown options
         """
         self.sample_names = sample_names
         self.metadata = metadata
+        self.analyzed_variables = analyzed_variables
         self.figures = {}
         self.projections_cache = {}  # Cache for expensive computations
         
@@ -252,8 +254,25 @@ class InteractiveVisualizer:
         metadata_cols = []
         color_mappings = {}
         if self.metadata is not None:
+            # First, prioritize user-specified variables from --variables flag
+            if self.analyzed_variables:
+                for col in self.analyzed_variables:
+                    if col in plot_df.columns and col not in ['sample_id'] and not col.endswith(('_x', '_y')):
+                        n_unique = plot_df[col].nunique()
+                        non_null = plot_df[col].count()
+                        # Relaxed criteria for user-specified variables - just need some variation
+                        if n_unique > 1 and non_null > 0:
+                            metadata_cols.append(col)
+                            # Convert categorical to numerical for Plotly
+                            if plot_df[col].dtype == 'object':
+                                unique_vals = plot_df[col].unique()
+                                mapping = {val: i for i, val in enumerate(unique_vals)}
+                                plot_df[f'{col}_numeric'] = plot_df[col].map(mapping)
+                                color_mappings[col] = mapping
+            
+            # Then add auto-detected columns not already included
             for col in plot_df.columns:
-                if col not in ['sample_id'] and not col.endswith(('_x', '_y')):
+                if col not in ['sample_id'] and not col.endswith(('_x', '_y')) and col not in metadata_cols:
                     n_unique = plot_df[col].nunique()
                     if n_unique > 1 and n_unique <= 20:
                         metadata_cols.append(col)
@@ -553,9 +572,19 @@ class InteractiveVisualizer:
         # Get metadata columns for coloring options
         metadata_cols = []
         if self.metadata is not None:
-            # Get categorical and numerical columns
+            # First, prioritize user-specified variables from --variables flag
+            if self.analyzed_variables:
+                for col in self.analyzed_variables:
+                    if col in plot_df.columns and col not in ['sample_id', 'PC1', 'PC2', 'PC3']:
+                        n_unique = plot_df[col].nunique()
+                        non_null = plot_df[col].count()
+                        # Relaxed criteria for user-specified variables - just need some variation
+                        if n_unique > 1 and non_null > 0:
+                            metadata_cols.append(col)
+            
+            # Then add auto-detected columns not already included
             for col in plot_df.columns:
-                if col not in ['sample_id', 'PC1', 'PC2', 'PC3']:
+                if col not in ['sample_id', 'PC1', 'PC2', 'PC3'] and col not in metadata_cols:
                     # Check if column has reasonable number of unique values for coloring
                     n_unique = plot_df[col].nunique()
                     if n_unique > 1 and n_unique <= 20:  # Good for categorical coloring

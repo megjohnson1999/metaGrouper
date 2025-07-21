@@ -165,7 +165,7 @@ def generate_visualizations(args, sample_names, distance_matrix, sparse_similari
         # Generate interactive visualizations if requested
         if (args.interactive or args.interactive_only) and PHASE4_AVAILABLE:
             print(f"🌐 Generating interactive HTML visualizations...")
-            interactive_viz = InteractiveVisualizer(sample_names, metadata_for_viz)
+            interactive_viz = InteractiveVisualizer(sample_names, metadata_for_viz, args.variables)
             
             if pca_result is not None:
                 # Interactive PCA plot
