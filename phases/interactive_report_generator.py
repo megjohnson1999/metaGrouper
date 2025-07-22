@@ -547,15 +547,22 @@ class InteractiveReportGenerator:
                 
                 # Add metadata if available
                 if self.report_data.get('metadata') is not None:
-                    metadata_for_merge = self.report_data['metadata'].reset_index()
+                    # Use same metadata processing logic as enhanced plot path
                     sample_id_column = self.report_data.get('sample_id_column', 'sample_id')
+                    metadata_orig = self.report_data['metadata']
                     
-                    if sample_id_column not in metadata_for_merge.columns:
-                        if 'sample_id' not in metadata_for_merge.columns:
-                            metadata_for_merge['sample_id'] = metadata_for_merge.index
-                    else:
+                    # Handle metadata preparation consistently
+                    if sample_id_column == metadata_orig.index.name:
+                        metadata_for_merge = metadata_orig.reset_index()
                         if sample_id_column != 'sample_id':
                             metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
+                    elif sample_id_column in metadata_orig.columns:
+                        metadata_for_merge = metadata_orig.reset_index(drop=True)
+                        if sample_id_column != 'sample_id':
+                            metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
+                    else:
+                        metadata_for_merge = metadata_orig.reset_index()
+                        metadata_for_merge['sample_id'] = metadata_for_merge.index
                     
                     # Fix data type mismatch by converting both to strings
                     pca_df['sample_id'] = pca_df['sample_id'].astype(str)
@@ -1432,23 +1439,37 @@ class InteractiveReportGenerator:
             print(f"📊 Found metadata with {len(self.report_data['metadata'])} rows and columns: {list(self.report_data['metadata'].columns)}")
             logging.info(f"Found metadata with {len(self.report_data['metadata'])} rows and columns: {list(self.report_data['metadata'].columns)}")
             
-            metadata_for_merge = self.report_data['metadata'].reset_index()
+            # Get sample ID column name
             sample_id_column = self.report_data.get('sample_id_column', 'sample_id')
-            
             print(f"🔍 Using '{sample_id_column}' column for sample matching")
             
-            if sample_id_column not in metadata_for_merge.columns:
-                print(f"❌ Column '{sample_id_column}' not found in metadata!")
-                print(f"📋 Available columns: {list(metadata_for_merge.columns)}")
-                if 'sample_id' not in metadata_for_merge.columns:
-                    metadata_for_merge['sample_id'] = metadata_for_merge.index
-                    sample_id_column = 'sample_id'
-                    print(f"🔧 Falling back to index as 'sample_id'")
-            else:
-                # Rename the specified column to 'sample_id' for consistent processing
+            # Handle metadata preparation more carefully
+            metadata_orig = self.report_data['metadata']
+            
+            # Check if the sample_id_column is the index
+            if sample_id_column == metadata_orig.index.name:
+                print(f"📋 '{sample_id_column}' is the DataFrame index")
+                metadata_for_merge = metadata_orig.reset_index()
+                # After reset_index, the index becomes a column
                 if sample_id_column != 'sample_id':
                     metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
-                    print(f"✅ Using '{sample_id_column}' column for matching")
+                    print(f"✅ Using index '{sample_id_column}' as sample_id")
+            elif sample_id_column in metadata_orig.columns:
+                print(f"📋 '{sample_id_column}' is a regular column")
+                metadata_for_merge = metadata_orig.reset_index(drop=True)  # Don't add index as column
+                if sample_id_column != 'sample_id':
+                    metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
+                    print(f"✅ Using column '{sample_id_column}' as sample_id")
+                else:
+                    print(f"✅ Using existing 'sample_id' column")
+            else:
+                print(f"❌ Column '{sample_id_column}' not found in metadata!")
+                print(f"📋 Available columns: {list(metadata_orig.columns)}")
+                print(f"📋 Index name: {metadata_orig.index.name}")
+                # Fallback to index
+                metadata_for_merge = metadata_orig.reset_index()
+                metadata_for_merge['sample_id'] = metadata_for_merge.index
+                print(f"🔧 Falling back to row index as 'sample_id'")
             
             print(f"🔗 Sample names for merging: {sample_names[:3]}...")
             print(f"🔗 Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
@@ -1473,6 +1494,18 @@ class InteractiveReportGenerator:
             print(f"✅ Converted both to strings for merging")
             logging.info(f"Sample names for merging: {sample_names[:3]}...")
             logging.info(f"Metadata sample IDs: {metadata_for_merge['sample_id'].tolist()[:3]}...")
+            
+            # DEBUG: Check a few specific variables before merge
+            debug_vars = ['FC_categories', 'current_medications', 'patient_ID']
+            for var in debug_vars:
+                if var in metadata_for_merge.columns:
+                    non_null_count = metadata_for_merge[var].notna().sum()
+                    unique_count = metadata_for_merge[var].nunique()
+                    print(f"🔍 PRE-MERGE: {var} has {non_null_count} non-null, {unique_count} unique values")
+                    if non_null_count > 0:
+                        print(f"   Sample values: {metadata_for_merge[var].dropna().unique()[:3].tolist()}")
+                else:
+                    print(f"🔍 PRE-MERGE: {var} NOT FOUND in metadata_for_merge")
             
             plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
             print(f"✅ After merge, plot_df columns: {list(plot_df.columns)}")
