@@ -797,10 +797,23 @@ def run_analysis(args):
                 print("⚠️  No metadata file specified - interactive coloring will not be available")
                     
             # If Phase 2 ran, use its processed metadata instead
+            # BUT: Phase 2 processed metadata may have lost data due to indexing
+            # For interactive report, prefer raw metadata to preserve all columns
             if run_phase2 and 'meta_analyzer' in locals():
-                metadata_for_report = meta_analyzer.metadata
-                print(f"✅ Using Phase 2 processed metadata for report")
-                logging.info(f"Using Phase 2 processed metadata for report")
+                # Check if processed metadata lost columns by comparing to raw
+                raw_cols = set(metadata_for_report.columns) if metadata_for_report is not None else set()
+                processed_cols = set(meta_analyzer.metadata.columns)
+                missing_in_processed = raw_cols - processed_cols
+                
+                if missing_in_processed:
+                    print(f"⚠️  Phase 2 processed metadata missing {len(missing_in_processed)} columns")
+                    print(f"   Missing: {list(missing_in_processed)[:5]}...")
+                    print(f"✅ Using raw metadata for report to preserve all columns")
+                    logging.info(f"Using raw metadata for report - processed metadata missing columns: {missing_in_processed}")
+                else:
+                    metadata_for_report = meta_analyzer.metadata
+                    print(f"✅ Using Phase 2 processed metadata for report")
+                    logging.info(f"Using Phase 2 processed metadata for report")
             
             report_path = create_interactive_report(
                 distance_matrix=distance_matrix,
