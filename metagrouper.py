@@ -490,6 +490,9 @@ def run_analysis(args):
     if args.metadata:
         try:
             metadata_for_viz = pd.read_csv(args.metadata, sep=None, engine='python')
+            # Set the index to the sample ID column if specified
+            if args.sample_id_column and args.sample_id_column in metadata_for_viz.columns:
+                metadata_for_viz = metadata_for_viz.set_index(args.sample_id_column)
         except Exception as e:
             logging.warning(f"Could not load metadata for visualization: {e}")
     

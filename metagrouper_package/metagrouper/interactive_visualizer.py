@@ -222,7 +222,12 @@ class InteractiveVisualizer:
         # Merge with metadata if available
         if self.metadata is not None:
             metadata_for_merge = self.metadata.reset_index()
-            if 'sample_id' not in metadata_for_merge.columns:
+            
+            # Check if the index name exists as a column after reset_index
+            if self.metadata.index.name and self.metadata.index.name in metadata_for_merge.columns:
+                # Use the index name column as sample_id
+                metadata_for_merge['sample_id'] = metadata_for_merge[self.metadata.index.name]
+            elif 'sample_id' not in metadata_for_merge.columns:
                 metadata_for_merge['sample_id'] = metadata_for_merge.index
             
             # Check for and handle duplicate sample IDs in metadata
@@ -551,7 +556,12 @@ class InteractiveVisualizer:
         if self.metadata is not None:
             # Reset index to ensure proper merging
             metadata_for_merge = self.metadata.reset_index()
-            if 'sample_id' not in metadata_for_merge.columns:
+            
+            # Check if the index name exists as a column after reset_index
+            if self.metadata.index.name and self.metadata.index.name in metadata_for_merge.columns:
+                # Use the index name column as sample_id
+                metadata_for_merge['sample_id'] = metadata_for_merge[self.metadata.index.name]
+            elif 'sample_id' not in metadata_for_merge.columns:
                 metadata_for_merge['sample_id'] = metadata_for_merge.index
             
             plot_df = plot_df.merge(metadata_for_merge, on='sample_id', how='left')
@@ -750,7 +760,12 @@ class InteractiveVisualizer:
         # Merge with metadata if available
         if self.metadata is not None:
             metadata_for_merge = self.metadata.reset_index()
-            if 'sample_id' not in metadata_for_merge.columns:
+            
+            # Check if the index name exists as a column after reset_index
+            if self.metadata.index.name and self.metadata.index.name in metadata_for_merge.columns:
+                # Use the index name column as sample_id
+                metadata_for_merge['sample_id'] = metadata_for_merge[self.metadata.index.name]
+            elif 'sample_id' not in metadata_for_merge.columns:
                 metadata_for_merge['sample_id'] = metadata_for_merge.index
             
             # Check for and handle duplicate sample IDs in metadata
