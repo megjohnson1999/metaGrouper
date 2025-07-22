@@ -1536,15 +1536,28 @@ class InteractiveReportGenerator:
             if analyzed_variables:
                 # Use user-specified variables from --variables flag
                 print(f"🎯 Using user-specified variables: {analyzed_variables}")
+                print(f"🔍 Available columns in plot_df after merge: {list(plot_df.columns)}")
                 for col in analyzed_variables:
-                    if col in plot_df.columns and col not in ['sample_id'] and not col.endswith(('_x', '_y')):
-                        n_unique = plot_df[col].nunique()
-                        non_null = plot_df[col].notna().sum()
-                        print(f"🎨 Column {col}: {n_unique} unique values, {non_null} non-null values")
-                        logging.info(f"Column {col}: {n_unique} unique values, {non_null} non-null values")
-                        if n_unique > 1 and non_null > 0:  # Relaxed criteria for user-specified variables
-                            metadata_cols.append(col)
-                            print(f"✅ Added {col} to coloring options")
+                    print(f"🧪 Checking variable '{col}'...")
+                    if col in plot_df.columns:
+                        if col not in ['sample_id'] and not col.endswith(('_x', '_y')):
+                            n_unique = plot_df[col].nunique()
+                            non_null = plot_df[col].notna().sum()
+                            print(f"🎨 Column {col}: {n_unique} unique values, {non_null} non-null values")
+                            if non_null > 0:
+                                print(f"   📋 Sample values: {plot_df[col].dropna().unique()[:5].tolist()}")
+                            else:
+                                print(f"   ❌ All values are NaN! This suggests merge failed for this column")
+                            logging.info(f"Column {col}: {n_unique} unique values, {non_null} non-null values")
+                            if n_unique > 1 and non_null > 0:  # Relaxed criteria for user-specified variables
+                                metadata_cols.append(col)
+                                print(f"✅ Added {col} to coloring options")
+                            else:
+                                print(f"❌ Skipped {col}: n_unique={n_unique}, non_null={non_null}")
+                        else:
+                            print(f"   ⏭️  Skipped {col}: excluded column type")
+                    else:
+                        print(f"   ❌ Column '{col}' not found in plot_df!")
             else:
                 # Fallback to auto-detection when no variables specified
                 print(f"🔍 Auto-detecting metadata columns for coloring")
