@@ -555,18 +555,20 @@ class InteractiveReportGenerator:
                     if sample_id_column == metadata_orig.index.name:
                         metadata_for_merge = metadata_orig.reset_index()
                         if sample_id_column != 'sample_id':
-                            metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
+                            metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column].astype(str)
                     elif sample_id_column in metadata_orig.columns:
                         metadata_for_merge = metadata_orig.reset_index(drop=True)
                         if sample_id_column != 'sample_id':
-                            metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
+                            metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column].astype(str)
+                        else:
+                            metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
                     else:
                         metadata_for_merge = metadata_orig.reset_index()
-                        metadata_for_merge['sample_id'] = metadata_for_merge.index
+                        metadata_for_merge['sample_id'] = metadata_for_merge.index.astype(str)
                     
-                    # Fix data type mismatch by converting both to strings
+                    # Fix data type mismatch by converting pca_df to strings (metadata already converted)
                     pca_df['sample_id'] = pca_df['sample_id'].astype(str)
-                    metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
+                    # metadata_for_merge['sample_id'] already converted to string above
                     
                     # Check for and handle duplicate sample IDs in metadata
                     if metadata_for_merge['sample_id'].duplicated().any():
@@ -1468,16 +1470,18 @@ class InteractiveReportGenerator:
                 metadata_for_merge = metadata_orig.reset_index()
                 # After reset_index, the index becomes a column
                 if sample_id_column != 'sample_id':
-                    metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
-                    print(f"✅ Using index '{sample_id_column}' as sample_id")
+                    metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column].astype(str)  # Convert to string immediately!
+                    print(f"✅ Using index '{sample_id_column}' as sample_id (converted to string)")
             elif sample_id_column in metadata_orig.columns:
                 print(f"📋 '{sample_id_column}' is a regular column")
                 metadata_for_merge = metadata_orig.reset_index(drop=True)  # Don't add index as column
                 if sample_id_column != 'sample_id':
-                    metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column]
-                    print(f"✅ Using column '{sample_id_column}' as sample_id")
+                    metadata_for_merge['sample_id'] = metadata_for_merge[sample_id_column].astype(str)  # Convert to string immediately!
+                    print(f"✅ Using column '{sample_id_column}' as sample_id (converted to string)")
                 else:
-                    print(f"✅ Using existing 'sample_id' column")
+                    # Even if it's already called sample_id, make sure it's a string
+                    metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
+                    print(f"✅ Using existing 'sample_id' column (converted to string)")
             else:
                 print(f"❌ Column '{sample_id_column}' not found in metadata!")
                 print(f"📋 Available columns: {list(metadata_orig.columns)}")
@@ -1492,9 +1496,9 @@ class InteractiveReportGenerator:
             print(f"📊 Sample names type: {type(sample_names[0]) if sample_names else 'None'}")
             print(f"📊 Metadata sample_id type: {metadata_for_merge['sample_id'].dtype}")
             
-            # Fix data type mismatch by converting both to strings
+            # Fix data type mismatch by converting plot_df to strings (metadata already converted)
             plot_df['sample_id'] = plot_df['sample_id'].astype(str)
-            metadata_for_merge['sample_id'] = metadata_for_merge['sample_id'].astype(str)
+            # metadata_for_merge['sample_id'] already converted to string above
             
             # Check for and handle duplicate sample IDs in metadata
             if metadata_for_merge['sample_id'].duplicated().any():
