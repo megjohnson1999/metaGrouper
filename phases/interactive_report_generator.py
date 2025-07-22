@@ -1446,6 +1446,22 @@ class InteractiveReportGenerator:
             # Handle metadata preparation more carefully
             metadata_orig = self.report_data['metadata']
             
+            # CRITICAL DEBUG: Check what's actually in the original metadata
+            print(f"🔍 CRITICAL DEBUG - Original metadata shape: {metadata_orig.shape}")
+            print(f"🔍 CRITICAL DEBUG - Index name: {metadata_orig.index.name}")
+            print(f"🔍 CRITICAL DEBUG - First few index values: {metadata_orig.index.tolist()[:3]}")
+            debug_cols = ['FC_categories', 'current_medications', 'patient_ID']
+            for col in debug_cols:
+                if col in metadata_orig.columns:
+                    non_null = metadata_orig[col].notna().sum()
+                    unique_vals = metadata_orig[col].nunique()
+                    print(f"🔍 CRITICAL DEBUG - {col}: {non_null} non-null, {unique_vals} unique")
+                    if non_null > 0:
+                        sample_vals = metadata_orig[col].dropna().unique()[:3]
+                        print(f"   Sample values: {sample_vals.tolist()}")
+                else:
+                    print(f"🔍 CRITICAL DEBUG - {col}: NOT FOUND in original metadata")
+            
             # Check if the sample_id_column is the index
             if sample_id_column == metadata_orig.index.name:
                 print(f"📋 '{sample_id_column}' is the DataFrame index")
