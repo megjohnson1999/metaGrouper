@@ -551,7 +551,7 @@ class MetadataAnalyzer:
         self.cluster_results = {}
 
     def load_metadata(self, metadata_file: str, sample_id_column: str = "sample_id"):
-        """Load metadata from CSV/TSV file."""
+        """Load metadata from CSV/TSV file with auto-detection of sample ID column."""
         logging.info(f"Loading metadata from {metadata_file}")
 
         # Detect file format
@@ -560,14 +560,14 @@ class MetadataAnalyzer:
         else:
             self.metadata = pd.read_csv(metadata_file)
 
-        # Ensure sample_id column exists
-        if sample_id_column not in self.metadata.columns:
-            raise ValueError(
-                f"Sample ID column '{sample_id_column}' not found in metadata"
-            )
-
+        # Auto-detect sample ID column if the specified one doesn't exist or doesn't match well
+        actual_sample_id_column = self._auto_detect_sample_id_column(sample_id_column)
+        
         # Align metadata with sample names
-        self.metadata = self.metadata.set_index(sample_id_column)
+        self.metadata = self.metadata.set_index(actual_sample_id_column)
+        
+        # Ensure index is string type to match sample_names
+        self.metadata.index = self.metadata.index.astype(str)
         
         # Check for duplicate sample IDs and handle them
         if self.metadata.index.duplicated().any():
@@ -578,7 +578,9 @@ class MetadataAnalyzer:
             self.metadata = self.metadata[~self.metadata.index.duplicated(keep='first')]
             logging.info(f"Removed duplicates, kept first occurrence for each sample ID")
         
-        self.metadata = self.metadata.reindex(self.sample_names)
+        # Ensure sample_names are also strings
+        sample_names_str = [str(name) for name in self.sample_names]
+        self.metadata = self.metadata.reindex(sample_names_str)
 
         logging.info(
             f"Loaded metadata for {len(self.metadata)} samples with "
@@ -589,6 +591,56 @@ class MetadataAnalyzer:
         missing_samples = self.metadata.index[self.metadata.isnull().all(axis=1)]
         if len(missing_samples) > 0:
             logging.warning(f"Missing metadata for samples: {list(missing_samples)}")
+    
+    def _auto_detect_sample_id_column(self, preferred_column: str = "sample_id"):
+        """Auto-detect the best sample ID column using the same logic as Interactive Report."""
+        logging.info(f"Auto-detecting sample ID column (preferred: {preferred_column})")
+        
+        # First, try the preferred column if it exists and has good matches
+        if preferred_column in self.metadata.columns:
+            col_values = self.metadata[preferred_column].astype(str).values
+            sample_names_str = [str(name) for name in self.sample_names]
+            exact_matches = sum(1 for name in sample_names_str if name in col_values)
+            
+            if exact_matches > len(self.sample_names) * 0.5:  # If >50% match
+                logging.info(f"Using preferred column '{preferred_column}' with {exact_matches}/{len(self.sample_names)} matches")
+                return preferred_column
+        
+        # Try common column names
+        possible_columns = ['sample_id', 'sample', 'accession', 'run_id', 'srr', 'sample_name', 'id', 'sra_accession', 'database_ID']
+        
+        logging.info(f"Checking common column names: {possible_columns}")
+        for col in possible_columns:
+            if col in self.metadata.columns:
+                # Convert both to string and check for matches
+                col_values_str = self.metadata[col].astype(str).values
+                sample_names_str = [str(name) for name in self.sample_names]
+                
+                # Try exact matches first
+                exact_matches = sum(1 for name in sample_names_str if name in col_values_str)
+                logging.info(f"   {col}: {exact_matches}/{len(self.sample_names)} exact matches")
+                
+                if exact_matches > 0:  # Any match is good enough for common columns
+                    logging.info(f"✅ Using column '{col}' as sample identifier")
+                    return col
+        
+        # Try all columns as a last resort
+        logging.info("Checking all columns for any matches...")
+        for col in self.metadata.columns:
+            col_values = self.metadata[col].astype(str).values
+            sample_names_str = [str(name) for name in self.sample_names]
+            matches = sum(1 for name in sample_names_str if name in col_values)
+            
+            if matches > len(self.sample_names) * 0.5:  # If >50% match
+                logging.info(f"   {col}: {matches} potential matches found")
+                logging.info(f"✅ Using column '{col}' as sample identifier")
+                return col
+        
+        # If no good matches found, raise an error
+        raise ValueError(
+            f"Could not find a suitable sample ID column. Checked columns: {list(self.metadata.columns)}. "
+            f"Sample names: {self.sample_names[:5]}..."
+        )
 
     def validate_sample_size(self, groups):
         """Validate that groups have sufficient sample size for reliable PERMANOVA results."""

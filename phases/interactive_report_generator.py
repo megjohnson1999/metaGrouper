@@ -1879,7 +1879,16 @@ class InteractiveReportGenerator:
             font=dict(size=12),
             updatemenus=updatemenus,
             annotations=annotations,
-            showlegend=False
+            showlegend=True,
+            legend=dict(
+                x=1.02,
+                y=1,
+                xanchor='left',
+                yanchor='top',
+                bgcolor='rgba(255,255,255,0.8)',
+                bordercolor='rgba(0,0,0,0.2)',
+                borderwidth=1
+            )
         )
         
         return fig
