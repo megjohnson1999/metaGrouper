@@ -374,6 +374,11 @@ class PermanovaAnalyzer:
         valid_distance_matrix = self.distance_matrix[
             np.ix_(valid_indices, valid_indices)
         ]
+        
+        # Ensure distance matrix is symmetric (fix floating point differences)
+        valid_distance_matrix = (valid_distance_matrix + valid_distance_matrix.T) / 2
+        np.fill_diagonal(valid_distance_matrix, 0)  # Ensure diagonal is exactly zero
+        
         valid_metadata = metadata_variable[valid_indices]
         groups = np.unique(valid_metadata)
         
@@ -483,6 +488,11 @@ class PermanovaAnalyzer:
         valid_distance_matrix = self.distance_matrix[
             np.ix_(valid_indices, valid_indices)
         ]
+        
+        # Ensure distance matrix is symmetric (fix floating point differences)
+        valid_distance_matrix = (valid_distance_matrix + valid_distance_matrix.T) / 2
+        np.fill_diagonal(valid_distance_matrix, 0)  # Ensure diagonal is exactly zero
+        
         valid_groups = metadata_variable[valid_indices]
 
         # Calculate observed F-statistic
