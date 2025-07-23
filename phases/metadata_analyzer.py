@@ -382,6 +382,7 @@ class PermanovaAnalyzer:
             
         # Calculate group centroids using PCoA
         from sklearn.decomposition import PCA
+        from sklearn.manifold import MDS
         from scipy.spatial.distance import squareform, pdist
         
         # Convert distance matrix to embedding
